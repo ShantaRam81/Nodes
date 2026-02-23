@@ -1,0 +1,297 @@
+/* ══════════════════════════════════════════════════════════
+   AetherFS – Animations & Keyframes
+   ══════════════════════════════════════════════════════════ */
+
+/* ── Grid background drift ── */
+@keyframes gridDrift {
+    0% {
+        background-position: 0px 0px, 0px 0px;
+    }
+
+    100% {
+        background-position: 60px 60px, 60px 60px;
+    }
+}
+
+/* ── Logo floating ── */
+@keyframes logoFloat {
+
+    0%,
+    100% {
+        transform: translateY(0px);
+    }
+
+    50% {
+        transform: translateY(-8px);
+    }
+}
+
+/* ── Node pulse ring ── */
+@keyframes pulseRing {
+    0% {
+        transform: scale(1);
+        opacity: 0.8;
+    }
+
+    100% {
+        transform: scale(3);
+        opacity: 0;
+    }
+}
+
+/* ── Scan line ── */
+@keyframes scanLine {
+    0% {
+        transform: translateY(-100%);
+    }
+
+    100% {
+        transform: translateY(100vh);
+    }
+}
+
+/* ── Spinner ── */
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ── Fade In ── */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ── Slide in from right ── */
+@keyframes slideInRight {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* ── Toast enter ── */
+@keyframes toastEnter {
+    from {
+        transform: translateY(100%) scale(0.9);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+    }
+}
+
+@keyframes toastExit {
+    from {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+    }
+
+    to {
+        transform: translateY(100%) scale(0.9);
+        opacity: 0;
+    }
+}
+
+/* ── Neon flicker for logo ── */
+@keyframes neonFlicker {
+
+    0%,
+    95%,
+    100% {
+        opacity: 1;
+    }
+
+    96% {
+        opacity: 0.8;
+    }
+
+    97% {
+        opacity: 1;
+    }
+
+    98% {
+        opacity: 0.6;
+    }
+}
+
+/* ── Data packet travel (used inline via JS) ── */
+@keyframes packetTravel {
+    0% {
+        offset-distance: 0%;
+        opacity: 1;
+    }
+
+    90% {
+        offset-distance: 100%;
+        opacity: 1;
+    }
+
+    100% {
+        offset-distance: 100%;
+        opacity: 0;
+    }
+}
+
+/* ── Heatmap aura breathe ── */
+@keyframes auraBreathe {
+
+    0%,
+    100% {
+        opacity: 0.6;
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 1;
+        transform: scale(1.06);
+    }
+}
+
+/* ── Search highlight pulse ── */
+@keyframes searchHighlight {
+    0% {
+        box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.8);
+    }
+
+    70% {
+        box-shadow: 0 0 0 20px rgba(255, 255, 255, 0);
+    }
+
+    100% {
+        box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
+    }
+}
+
+/* ── Panel slide in ── */
+@keyframes panelSlideIn {
+    from {
+        transform: translateX(110%);
+    }
+
+    to {
+        transform: translateX(0);
+    }
+}
+
+/* ── Command palette drop-in ── */
+@keyframes paletteDropIn {
+    from {
+        transform: translateY(-30px) scale(0.96);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+    }
+}
+
+/* ── Smooth context menu slide-in ── */
+@keyframes contextSlideIn {
+    from {
+        transform: scale(0.9) translateY(-8px);
+        opacity: 0;
+    }
+
+    to {
+        transform: scale(1) translateY(0);
+        opacity: 1;
+    }
+}
+
+.context-menu:not(.hidden) {
+    animation: contextSlideIn 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ── Overlay fade-in ── */
+@keyframes overlayFadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+#upload-overlay:not(.hidden),
+#loading-overlay:not(.hidden) {
+    animation: overlayFadeIn 0.25s ease-out;
+}
+
+/* ── Banner slide-up ── */
+@keyframes bannerSlideUp {
+    from {
+        transform: translateX(-50%) translateY(30px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(-50%) translateY(0);
+        opacity: 1;
+    }
+}
+
+#upload-picker-banner:not(.hidden),
+#timeline-panel:not(.hidden) {
+    animation: bannerSlideUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ── Toast slide-in ── */
+@keyframes toastSlideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.toast {
+    animation: toastSlideIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ── Inline input pop-in ── */
+@keyframes inlineInputAppear {
+    from {
+        transform: scale(0.8);
+        opacity: 0;
+    }
+
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* ── Toolbar button hover ── */
+.toolbar-btn {
+    transition: background 0.15s, color 0.15s, transform 0.15s;
+}
+
+.toolbar-btn:hover {
+    transform: translateY(-1px);
+}
+
+.toolbar-btn:active {
+    transform: translateY(0) scale(0.97);
+}
