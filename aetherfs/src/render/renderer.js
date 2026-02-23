@@ -381,7 +381,7 @@ export const Renderer = {
             }
 
             // Bookmark star indicator ★
-            if (n._bookmarked) {
+            if (window.AetherApp && window.AetherApp._favorites.has(n.id)) {
                 ctx.fillStyle = '#ffd700';
                 ctx.font = 'bold 14px sans-serif';
                 ctx.textAlign = 'right';

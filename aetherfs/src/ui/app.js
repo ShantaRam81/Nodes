@@ -28,6 +28,7 @@ const App = {
     _groupingEnabled: true,
     _groupedFolders: new Set(),    // Per-folder grouping: set of folder IDs to group
     _nodeComments: new Map(),      // nodeId -> comment string
+    _favorites: new Set(),         // Set of favored node IDs
     _theme: 'dark',
 
     init() {
@@ -55,6 +56,9 @@ const App = {
 
         // Load saved comments from localStorage
         this._loadComments();
+
+        // Load favorites
+        this._loadFavorites();
     },
 
     async _handleDropboxCallback() {
@@ -173,14 +177,12 @@ const App = {
                 e.preventDefault();
                 this.exportGraph();
             }
-            // Ctrl+B: toggle bookmark on selected node
             if (e.key === 'b' && (e.ctrlKey || e.metaKey) && Renderer._selectedId) {
                 e.preventDefault();
                 const node = this._nodeMap.get(Renderer._selectedId);
                 if (node) {
-                    node._bookmarked = !node._bookmarked;
-                    Renderer.markDirty();
-                    Utils.toast(node._bookmarked ? `★ ${node.name} в избранное` : `☆ ${node.name} из избранного`, 'info', 1500);
+                    this._ctxTargetId = node.id; // ctx_toggleFavorite uses this._ctxTargetId
+                    this.ctx_toggleFavorite();
                 }
             }
             // Escape: clear path highlight, upload picker, close timeline
@@ -646,8 +648,32 @@ const App = {
 
     // Keep _rawNodes/_rawEdges in sync with current graph state
     _syncRawData() {
-        const realNodes = this._nodes.filter(n => n.type !== 'file-group');
-        const realEdges = this._edges.filter(e => !(e.id && e.id.includes('_filegroup')));
+        const realNodes = [];
+        const realEdges = [];
+
+        for (const n of this._nodes) {
+            if (n.type !== 'file-group') {
+                realNodes.push(n);
+            } else if (n._hiddenFiles) {
+                // Restore hidden files correctly into the raw representation
+                for (const hf of n._hiddenFiles) {
+                    realNodes.push(hf);
+                    realEdges.push({
+                        id: `${hf.parentId}->${hf.id}`,
+                        source: hf.parentId,
+                        target: hf.id
+                    });
+                }
+            }
+        }
+
+        // Restore real edges that don't belong to a filegroup
+        for (const e of this._edges) {
+            if (!(e.id && e.id.includes('_filegroup'))) {
+                realEdges.push(e);
+            }
+        }
+
         this._rawNodes = realNodes;
         this._rawEdges = realEdges;
     },
@@ -1197,6 +1223,7 @@ const App = {
                 return;
             }
             this._loadGraph(result.nodes, result.edges, storage.rootName);
+            Utils.show(Utils.el('btn-sync-dropbox'));
 
             // Start auto-refresh polling (every 30 seconds)
             this._startDropboxSync();
@@ -1210,6 +1237,31 @@ const App = {
         // No polling — sync is now event-driven via _syncDropboxNow()
         if (this._dropboxSyncInterval) clearInterval(this._dropboxSyncInterval);
         this._dropboxSyncInterval = null;
+    },
+
+    async forceSyncDropbox() {
+        if (!isDropboxMode) return;
+        this._showLoading('СИНХРОНИЗАЦИЯ DROPBOX…');
+        try {
+            const freshStorage = new DropboxProvider();
+            const result = await freshStorage.openDirectory(() => { });
+            if (!result) return;
+
+            // Preserve positions
+            for (const n of result.nodes) {
+                const existing = this._nodeMap?.get(n.id);
+                if (existing) {
+                    n.x = existing.x; n.y = existing.y;
+                    n.vx = existing.vx || 0; n.vy = existing.vy || 0;
+                }
+            }
+
+            this._loadGraph(result.nodes, result.edges, freshStorage.rootName);
+            Utils.toast('☁ Dropbox: синхронизировано', 'success', 2000);
+        } catch (e) {
+            Utils.toast(`Ошибка Dropbox: ${e.message}`, 'error', 4000);
+            this._hideLoading();
+        }
     },
 
     // Event-driven sync: called after any CRUD operation with 2s debounce
@@ -1275,6 +1327,7 @@ const App = {
         DropboxAuth.logout();
         storage = new LocalFileSystemProvider();
         isDropboxMode = false;
+        Utils.hide(Utils.el('btn-sync-dropbox'));
         this.goHome();
     },
 
@@ -1474,6 +1527,42 @@ const App = {
             }
         } catch (e) { /* ignore */ }
     },
+
+    // ── Favorites ───────────────────────────────────────────
+    ctx_toggleFavorite() {
+        Utils.hide(Utils.el('context-menu'));
+        const node = this._nodeMap.get(this._ctxTargetId);
+        if (!node) return;
+
+        if (this._favorites.has(node.id)) {
+            this._favorites.delete(node.id);
+            Utils.toast(`Убрано из Избранного: ${node.name}`, 'info', 1500);
+        } else {
+            this._favorites.add(node.id);
+            Utils.toast(`Добавлено в Избранное: ${node.name}`, 'success', 1500);
+        }
+
+        this._persistFavorites();
+        Renderer.markDirty();
+    },
+
+    _persistFavorites() {
+        try {
+            localStorage.setItem('aetherfs-favorites', JSON.stringify([...this._favorites]));
+        } catch (e) { /* ignore */ }
+    },
+
+    _loadFavorites() {
+        try {
+            const raw = localStorage.getItem('aetherfs-favorites');
+            if (raw) {
+                const arr = JSON.parse(raw);
+                if (Array.isArray(arr)) {
+                    this._favorites = new Set(arr);
+                }
+            }
+        } catch (e) { /* ignore */ }
+    }
 };
 
 export default App;
