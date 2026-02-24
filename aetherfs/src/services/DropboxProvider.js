@@ -296,6 +296,18 @@ export class DropboxProvider {
         } catch (_) { return null; }
     }
 
+    /** Download file content as Blob (for single-file download or zip). Node must be a file. */
+    async getFileBlob(node) {
+        if (!node || !node._dbxPath || node.type === 'folder') return null;
+        try {
+            const { response } = await this._apiCall('/files/download', { path: node._dbxPath }, { isContent: true });
+            return await response.blob();
+        } catch (e) {
+            console.warn('[Dropbox] getFileBlob error:', e.message);
+            return null;
+        }
+    }
+
     // ── Tags config (file in Dropbox root) ──────────────────
     /** Load tags config from /aetherfs-tags.json. Returns { pathToTag: { path: tag } } or null if missing. */
     async readTagsConfig() {

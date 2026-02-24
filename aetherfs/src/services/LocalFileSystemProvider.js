@@ -133,6 +133,17 @@ export class LocalFileSystemProvider {
         } catch (_) { return null; }
     }
 
+    /** Get file as Blob (for single-file download or zip). Node must be a file with handle. */
+    async getFileBlob(node) {
+        if (!node || !node.handle || node.type === 'folder') return null;
+        try {
+            return await node.handle.getFile();
+        } catch (e) {
+            console.warn('[LocalFS] getFileBlob error:', e.message);
+            return null;
+        }
+    }
+
     async createFolder(parentId, name) {
         const parentNode = this.nodes.find(n => n.id === parentId);
         if (!parentNode || !parentNode.handle || parentNode.handle.kind !== 'directory') return null;

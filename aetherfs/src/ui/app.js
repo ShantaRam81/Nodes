@@ -11,6 +11,7 @@ import { Search } from './search.js';
 import { LocalFileSystemProvider } from '../services/LocalFileSystemProvider.js';
 import { DropboxProvider } from '../services/DropboxProvider.js';
 import { DropboxAuth } from '../services/DropboxAuth.js';
+import JSZip from 'jszip';
 
 let storage = new LocalFileSystemProvider();
 let isDropboxMode = false;
@@ -1109,6 +1110,69 @@ const App = {
 
     ctx_open() { Utils.toast('Открытие доступно напрямую через File System Access API', 'info'); },
     ctx_copyPath() { const n = this._nodeMap.get(this._ctxTargetId); if (n) Utils.copyText(n.path); },
+
+    async ctx_download() {
+        Utils.hide(Utils.el('context-menu'));
+        const node = this._nodeMap.get(this._ctxTargetId);
+        if (!node || !storage.getFileBlob) return;
+
+        if (node.type === 'folder') {
+            const descendants = new Set();
+            const collect = (id) => {
+                descendants.add(id);
+                this._edges.filter(e => e.source === id).forEach(e => collect(e.target));
+            };
+            collect(node.id);
+            const fileNodes = this._nodes.filter(n => n.type !== 'folder' && descendants.has(n.id));
+            if (fileNodes.length === 0) {
+                Utils.toast('В папке нет файлов для скачивания', 'info');
+                return;
+            }
+            this._showLoading(`Скачивание… ${fileNodes.length} файл(ов)`);
+            try {
+                const zip = new JSZip();
+                const basePath = ((node._dbxPath ?? node.path) || '').replace(/\/+$/, '') || node.name;
+                for (let i = 0; i < fileNodes.length; i++) {
+                    const fn = fileNodes[i];
+                    const fullPath = fn._dbxPath ?? fn.path ?? fn.name;
+                    const rel = fullPath.startsWith(basePath) ? fullPath.slice(basePath.length).replace(/^\/+/, '') : fn.name;
+                    const zipPath = rel ? `${node.name}/${rel}` : `${node.name}/${fn.name}`;
+                    const blob = await storage.getFileBlob(fn);
+                    if (blob) zip.file(zipPath, blob);
+                    if (fileNodes.length > 3) Utils.el('loading-sub').textContent = `${i + 1} / ${fileNodes.length}`;
+                }
+                const zipBlob = await zip.generateAsync({ type: 'blob' });
+                this._triggerDownload(zipBlob, `${node.name}.zip`);
+                Utils.toast(`Скачано: ${node.name}.zip`, 'success', 2000);
+            } catch (e) {
+                console.error(e);
+                Utils.toast(`Ошибка: ${e.message}`, 'error', 3000);
+            } finally {
+                this._hideLoading();
+            }
+        } else {
+            this._showLoading('Скачивание…');
+            try {
+                const blob = await storage.getFileBlob(node);
+                if (!blob) throw new Error('Не удалось прочитать файл');
+                this._triggerDownload(blob, node.name);
+                Utils.toast(`Скачано: ${node.name}`, 'success', 2000);
+            } catch (e) {
+                Utils.toast(`Ошибка: ${e.message}`, 'error', 3000);
+            } finally {
+                this._hideLoading();
+            }
+        }
+    },
+
+    _triggerDownload(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+    },
     ctx_focusType() {
         const n = this._nodeMap.get(this._ctxTargetId); if (!n) return;
         Renderer.setDimMode(true, n.type);
