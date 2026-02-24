@@ -41,6 +41,7 @@ export const ForceLayout = {
         this.mode = mode;
         this.onTick = onTick;
         this._calcTreeDepths(this.nodes, this.edges);
+        if (this.mode === 'strict') this.applyStrictLayout();
     },
 
     // ── Start simulation ─────────────────────────────────────
@@ -371,22 +372,34 @@ export const ForceLayout = {
             n._vCount = depthCounts.get(n._depth) || 1;
             n._maxDepth = maxDepth;
         }
+        // Позиции x,y в строгом режиме НЕ перезаписываем здесь — только по явному вызову applyStrictLayout()
+    },
 
-        // ─── STEP 7: STRICT MODE positioning ────────────────
-        if (this.mode === 'strict') {
-            const hStep = 300;
-            const vStep = 100;
-            for (const n of nodes) {
-                const targetX = n._depth * hStep;
-                const vCount = n._vCount || 1;
-                const spread = (vCount - 1) * vStep;
-                const targetY = (n._vIndex * vStep) - spread / 2;
-
-                n.x = targetX;
-                n.y = targetY;
-                n.vx = 0;
-                n.vy = 0;
+    /**
+     * Расставить ноды в строгом древовидном виде.
+     * @param {Object} [opts]
+     * @param {boolean} [opts.onlyUnpositioned] — если true, обновлять только ноды без позиции (x/y null или 0,0)
+     */
+    applyStrictLayout(opts = {}) {
+        const onlyUnpositioned = opts.onlyUnpositioned === true;
+        const nodes = this.nodes;
+        if (!nodes.length) return;
+        this._calcTreeDepths(nodes, this.edges);
+        const hStep = 300;
+        const vStep = 100;
+        for (const n of nodes) {
+            if (onlyUnpositioned) {
+                const hasPos = n.x != null && n.y != null && !(n.x === 0 && n.y === 0);
+                if (hasPos) continue;
             }
+            const targetX = n._depth * hStep;
+            const vCount = n._vCount || 1;
+            const spread = (vCount - 1) * vStep;
+            const targetY = (n._vIndex * vStep) - spread / 2;
+            n.x = targetX;
+            n.y = targetY;
+            n.vx = 0;
+            n.vy = 0;
         }
     },
 

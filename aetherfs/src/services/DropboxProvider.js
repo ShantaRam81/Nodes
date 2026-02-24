@@ -141,6 +141,9 @@ export class DropboxProvider {
         // Load root folder contents
         await this._loadFolder('', rootId, onProgress);
 
+        // Размеры папок (subtreeSizeBytes) для карты и отображения
+        this._computeSubtreeSizes();
+
         this.rootName = 'Dropbox ☁';
         return { nodes: this.nodes, edges: this.edges };
     }

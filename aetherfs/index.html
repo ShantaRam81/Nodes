@@ -113,6 +113,9 @@
             <button class="cluster-btn" id="layout-free" data-mode="free">СВОБОДНЫЙ</button>
             <button class="cluster-btn active" id="layout-strict" data-mode="strict">СТРОГИЙ</button>
             <button class="cluster-btn" id="layout-radial" data-mode="radial">РАДИАЛЬНЫЙ</button>
+            <button class="toolbar-btn" id="btn-reset-layout" title="Вернуть раскладку в строгий вид (только в режиме Строгий)">
+              ВЕРНУТЬ В НОРМУ
+            </button>
           </div>
         </div>
 
@@ -179,6 +182,16 @@
             </svg>
             ЭКСПОРТ
           </button>
+          <button class="toolbar-btn" id="btn-activity-log" title="Журнал действий" onclick="AetherApp.toggleActivityLog()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/>
+              <polyline points="10 9 9 9 8 9"/>
+            </svg>
+            Журнал
+          </button>
           <button class="toolbar-btn" id="btn-toggle-theme" title="Переключить тему" onclick="AetherApp.toggleTheme()"
             style="font-size:18px; padding:4px 10px;">☀</button>
           <div class="toolbar-sep"></div>
@@ -228,6 +241,18 @@
           </div>
         </main>
       </div>
+
+      <!-- ACTIVITY LOG PANEL (Журнал действий) -->
+      <aside id="activity-log-panel" class="activity-log-panel hidden">
+        <div class="activity-log-header">
+          <h2 class="activity-log-title">Журнал</h2>
+          <span id="activity-log-time" class="activity-log-time"></span>
+          <button type="button" id="btn-close-activity-log" class="panel-close-btn" title="Закрыть">✕</button>
+        </div>
+        <div class="activity-log-timeline">
+          <div id="activity-log-entries" class="activity-log-entries"></div>
+        </div>
+      </aside>
 
       <!-- PREVIEW PANEL -->
       <aside id="preview-panel" class="preview-panel hidden">

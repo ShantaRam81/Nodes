@@ -22,6 +22,8 @@ export const Renderer = {
     _hoveredId: null,
     _selectedId: null,
     _selectedIds: new Set(), // Multi-selection
+    _draggingNodes: [],      // при перетаскивании — все ноды, которые двигаются (включая выделенные)
+    _draggingStartPositions: null, // Map id -> { x, y } на момент начала перетаскивания
 
     nodes: [],
     edges: [],
@@ -37,6 +39,9 @@ export const Renderer = {
     _ctrlDown: false,
     _uploadPickerMode: false,
     _pathHighlightIds: new Set(), // IDs of nodes in the highlighted path
+
+    /** Радиус круга файла (px). Меняй это значение, чтобы регулировать размер. */
+    FILE_CIRCLE_RADIUS: 10,
 
     _raf: null,
     _dirty: true,
@@ -123,30 +128,29 @@ export const Renderer = {
         const edges = this.edges;
         const T = this._getThemeColors();
 
-        // Background
+        // Фон — сплошной цвет в экранных координатах
         ctx.fillStyle = T.bg;
         ctx.fillRect(0, 0, W, H);
-
-        // Dot pattern
-        const dotSpacing = 25;
-        const dotR = 1;
-        ctx.fillStyle = T.dot;
-        const offsetX = ((cam.x % (dotSpacing * cam.scale)) + W) % (dotSpacing * cam.scale);
-        const offsetY = ((cam.y % (dotSpacing * cam.scale)) + H) % (dotSpacing * cam.scale);
-        const step = dotSpacing * cam.scale;
-        if (step > 4) {
-            for (let x = offsetX; x < W; x += step) {
-                for (let y = offsetY; y < H; y += step) {
-                    ctx.beginPath();
-                    ctx.arc(x, y, dotR, 0, Math.PI * 2);
-                    ctx.fill();
-                }
-            }
-        }
 
         ctx.save();
         ctx.translate(W / 2 + cam.x, H / 2 + cam.y);
         ctx.scale(cam.scale, cam.scale);
+
+        // Точечная сетка в мировых координатах: при отдалении точки визуально уменьшаются
+        const dotSpacing = 25;
+        const dotR = 1;
+        const vw = (W / cam.scale) + dotSpacing * 2;
+        const vh = (H / cam.scale) + dotSpacing * 2;
+        const cx = -cam.x / cam.scale;
+        const cy = -cam.y / cam.scale;
+        ctx.fillStyle = T.dot;
+        for (let x = cx - vw; x < cx + vw; x += dotSpacing) {
+            for (let y = cy - vh; y < cy + vh; y += dotSpacing) {
+                ctx.beginPath();
+                ctx.arc(x, y, dotR, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
 
         if (this.heatmapMode) this._drawHeatmapAuras(ctx, nodes);
         const visibleNodes = this._getVisibleNodes(nodes);
@@ -216,8 +220,10 @@ export const Renderer = {
             }
 
             // Elastic S-curve Bezier from right port to left edge
-            const startX = src.x + 70;
-            const endX = tgt.x - 70;
+            const srcHalf = this._isFolderShape(src) ? 70 : this.FILE_CIRCLE_RADIUS;
+            const tgtHalf = this._isFolderShape(tgt) ? 70 : this.FILE_CIRCLE_RADIUS;
+            const startX = src.x + srcHalf;
+            const endX = tgt.x - tgtHalf;
             const dx = Math.abs(endX - startX);
             const tension = Math.max(dx * 0.45, 60); // Elastic tension
 
@@ -249,7 +255,8 @@ export const Renderer = {
         ctx.setLineDash([6, 4]);
         ctx.lineDashOffset = -this._dashOffset;
 
-        const startX = src.x + 70;
+        const srcHalf = this._isFolderShape(src) ? 70 : this.FILE_CIRCLE_RADIUS;
+        const startX = src.x + srcHalf;
         ctx.beginPath();
         ctx.moveTo(startX, src.y);
         const dx = tgt.x - startX;
@@ -266,6 +273,33 @@ export const Renderer = {
         ctx.arc(tgt.x, tgt.y, 5, 0, Math.PI * 2);
         ctx.fillStyle = T.edgeSel;
         ctx.fill();
+    },
+
+    // File nodes drawn as circles; folders (and file-group) as rounded rects
+    _isFolderShape(n) {
+        return n.type === 'folder' || n.type === 'file-group';
+    },
+
+    _drawFavoriteStar(ctx, cx, cy) {
+        const R = 7, r = 3; // outer and inner radius
+        ctx.beginPath();
+        for (let i = 0; i < 5; i++) {
+            const aOut = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
+            const aIn = -Math.PI / 2 + ((i + 0.5) * 2 * Math.PI) / 5;
+            const xOut = cx + R * Math.cos(aOut);
+            const yOut = cy + R * Math.sin(aOut);
+            const xIn = cx + r * Math.cos(aIn);
+            const yIn = cy + r * Math.sin(aIn);
+            if (i === 0) ctx.moveTo(xOut, yOut);
+            else ctx.lineTo(xOut, yOut);
+            ctx.lineTo(xIn, yIn);
+        }
+        ctx.closePath();
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
     },
 
     _drawRect(ctx, x, y, width, height, radius = 8) {
@@ -312,95 +346,109 @@ export const Renderer = {
             ctx.save();
             ctx.globalAlpha = (isDim || isPathDim) ? 0.15 : 1;
 
-            const w = 140;
-            const h = 36;
-            const rx = n.x - w / 2;
-            const ry = n.y - h / 2;
+            const isFolderShape = this._isFolderShape(n);
+            const fileCircleR = this.FILE_CIRCLE_RADIUS;
 
-            // Shadow
-            ctx.shadowColor = 'rgba(0,0,0,0.3)';
-            ctx.shadowBlur = 8;
-            ctx.shadowOffsetY = 3;
+            if (isFolderShape) {
+                // ─── Folder / file-group: rounded rectangle ───
+                const w = 140;
+                const h = 36;
+                const rx = n.x - w / 2;
+                const ry = n.y - h / 2;
 
-            // Node body
-            ctx.fillStyle = isSel ? T.nodeBgSel : T.nodeBg;
-            this._drawRect(ctx, rx, ry, w, h);
-            ctx.fill();
+                ctx.fillStyle = isSel ? T.nodeBgSel : T.nodeBg;
+                this._drawRect(ctx, rx, ry, w, h);
+                ctx.fill();
 
-            ctx.shadowColor = 'transparent';
-            ctx.shadowBlur = 0;
-            ctx.shadowOffsetY = 0;
+                ctx.strokeStyle = isHlt ? T.textSel : (isSel ? color : (isHov ? T.nodeBorderHov : T.nodeBorder));
+                ctx.lineWidth = isSel || isHlt ? 2 : 1;
+                ctx.stroke();
 
-            // Border
-            ctx.strokeStyle = isHlt ? T.textSel : (isSel ? color : (isHov ? T.nodeBorderHov : T.nodeBorder));
-            ctx.lineWidth = isSel || isHlt ? 2 : 1;
-            ctx.stroke();
-
-            // Left port square (type indicator)
-            ctx.beginPath();
-            ctx.rect(rx + 10, n.y - 4, 8, 8);
-            ctx.fillStyle = color;
-            ctx.fill();
-
-            // RIGHT PORT CONNECTOR (only for folders, only on hover) ⊕
-            if (n.type === 'folder' && isHov) {
-                const portX = rx + w - 6;
-                const portY = n.y;
-                const portR = 5;
                 ctx.beginPath();
-                ctx.arc(portX, portY, portR, 0, Math.PI * 2);
+                ctx.rect(rx + 10, n.y - 4, 8, 8);
                 ctx.fillStyle = color;
                 ctx.fill();
-                ctx.strokeStyle = T.textSel;
-                ctx.lineWidth = 1;
-                ctx.stroke();
-                // Plus sign in port
-                ctx.strokeStyle = T.textSel;
-                ctx.lineWidth = 1.5;
+
+                if (n.type === 'folder' && isHov) {
+                    const portX = rx + w - 6;
+                    const portY = n.y;
+                    const portR = 5;
+                    ctx.beginPath();
+                    ctx.arc(portX, portY, portR, 0, Math.PI * 2);
+                    ctx.fillStyle = color;
+                    ctx.fill();
+                    ctx.strokeStyle = T.textSel;
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                    ctx.strokeStyle = T.textSel;
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    ctx.moveTo(portX - 2.5, portY); ctx.lineTo(portX + 2.5, portY);
+                    ctx.moveTo(portX, portY - 2.5); ctx.lineTo(portX, portY + 2.5);
+                    ctx.stroke();
+                }
+
+                const maxLen = 16;
+                const label = n.name.length > maxLen ? n.name.slice(0, maxLen - 1) + '…' : n.name;
+                ctx.font = '12px "Inter Tight", sans-serif';
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = isSel ? T.textSel : T.text;
+                ctx.fillText(label, rx + 28, n.y);
+
+                if (n.type === 'folder' && n.collapsed) {
+                    ctx.fillStyle = T.textSel;
+                    ctx.font = 'bold 12px monospace';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('+', rx + w - 22, n.y);
+                }
+
+                if (window.AetherApp && window.AetherApp._favorites.has(n.id)) {
+                    this._drawFavoriteStar(ctx, rx + w - 11, n.y);
+                }
+                if (inUploadPicker && n.type === 'folder') {
+                    const pulse = Math.sin(this._animFrame * 0.05) * 0.3 + 0.7;
+                    ctx.strokeStyle = `rgba(100, 180, 255, ${pulse})`;
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
+                }
+
+                if (n._tag) {
+                    const tagColors = { urgent: '#ff4444', review: '#ffaa00', wip: '#44aaff', done: '#44cc44', important: '#cc44ff' };
+                    ctx.fillStyle = tagColors[n._tag] || '#888';
+                    ctx.fillRect(rx + 2, ry + h - 4, w - 4, 3);
+                }
+            } else {
+                // ─── File: один круг (внутренний), без внешнего кольца ───
                 ctx.beginPath();
-                ctx.moveTo(portX - 2.5, portY); ctx.lineTo(portX + 2.5, portY);
-                ctx.moveTo(portX, portY - 2.5); ctx.lineTo(portX, portY + 2.5);
+                ctx.arc(n.x, n.y, fileCircleR, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                ctx.fill();
+
+                ctx.strokeStyle = isHlt ? T.textSel : (isSel ? color : (isHov ? T.nodeBorderHov : T.nodeBorder));
+                ctx.lineWidth = isSel || isHlt ? 2 : 1;
                 ctx.stroke();
-            }
 
-            // Label
-            const maxLen = 16;
-            const label = n.name.length > maxLen ? n.name.slice(0, maxLen - 1) + '…' : n.name;
-            ctx.font = '12px "Inter Tight", sans-serif';
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'middle';
-            ctx.fillStyle = isSel ? T.textSel : T.text;
-            ctx.fillText(label, rx + 28, n.y);
+                // Label to the right of circle
+                const maxLen = 14;
+                const label = n.name.length > maxLen ? n.name.slice(0, maxLen - 1) + '…' : n.name;
+                ctx.font = '12px "Inter Tight", sans-serif';
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = isSel ? T.textSel : T.text;
+                ctx.fillText(label, n.x + fileCircleR + 10, n.y);
 
-            // Collapsed indicator
-            if (n.type === 'folder' && n.collapsed) {
-                ctx.fillStyle = T.textSel;
-                ctx.font = 'bold 12px monospace';
-                ctx.textAlign = 'center';
-                ctx.fillText('+', rx + w - 22, n.y);
-            }
+                if (window.AetherApp && window.AetherApp._favorites.has(n.id)) {
+                    this._drawFavoriteStar(ctx, n.x + fileCircleR + 5, n.y);
+                }
 
-            // Bookmark star indicator ★
-            if (window.AetherApp && window.AetherApp._favorites.has(n.id)) {
-                ctx.fillStyle = '#ffd700';
-                ctx.font = 'bold 14px sans-serif';
-                ctx.textAlign = 'right';
-                ctx.textBaseline = 'top';
-                ctx.fillText('★', rx + w - 2, ry - 2);
-            }
-            // Upload picker mode: glow border on folders
-            if (inUploadPicker && n.type === 'folder') {
-                const pulse = Math.sin(this._animFrame * 0.05) * 0.3 + 0.7;
-                ctx.strokeStyle = `rgba(100, 180, 255, ${pulse})`;
-                ctx.lineWidth = 3;
-                ctx.stroke();
-            }
-
-            // Tag color strip at bottom
-            if (n._tag) {
-                const tagColors = { urgent: '#ff4444', review: '#ffaa00', wip: '#44aaff', done: '#44cc44', important: '#cc44ff' };
-                ctx.fillStyle = tagColors[n._tag] || '#888';
-                ctx.fillRect(rx + 2, ry + h - 4, w - 4, 3);
+                if (n._tag) {
+                    const tagColors = { urgent: '#ff4444', review: '#ffaa00', wip: '#44aaff', done: '#44cc44', important: '#cc44ff' };
+                    ctx.fillStyle = tagColors[n._tag] || '#888';
+                    ctx.beginPath();
+                    ctx.arc(n.x + fileCircleR * 0.85, n.y + fileCircleR * 0.85, 4, 0, Math.PI * 2);
+                    ctx.fill();
+                }
             }
 
             ctx.restore();
@@ -450,10 +498,17 @@ export const Renderer = {
 
         for (const n of nodes) {
             if (n.x == null) continue;
-            // Draw tiny squares instead of arcs
             const sz = Math.max(2, n._radius * s * 0.7);
+            const px = (n.x - minX) * s + pad;
+            const py = (n.y - minY) * s + pad;
             mc.fillStyle = NodeTypes.hexToRgba(NodeTypes.color(n.type), 0.7);
-            mc.fillRect((n.x - minX) * s + pad - sz / 2, (n.y - minY) * s + pad - sz / 2, sz, sz);
+            if (this._isFolderShape(n)) {
+                mc.fillRect(px - sz / 2, py - sz * 0.25, sz, sz * 0.5);
+            } else {
+                mc.beginPath();
+                mc.arc(px, py, Math.max(2, sz * 0.5), 0, Math.PI * 2);
+                mc.fill();
+            }
         }
 
         const cam = this._cam;
@@ -521,15 +576,19 @@ export const Renderer = {
     },
 
     hitTest(wx, wy, excludeId = null) {
-        const w2 = 140 / 2;
-        const h2 = 36 / 2;
+        const fileCircleR = this.FILE_CIRCLE_RADIUS;
         const visibleIds = new Set(this._getVisibleNodes(this.nodes).map(n => n.id));
 
         for (let i = this.nodes.length - 1; i >= 0; i--) {
             const n = this.nodes[i];
             if (n.x == null || !visibleIds.has(n.id)) continue;
             if (excludeId && n.id === excludeId) continue;
-            if (wx >= n.x - w2 && wx <= n.x + w2 && wy >= n.y - h2 && wy <= n.y + h2) return n;
+            if (this._isFolderShape(n)) {
+                const w2 = 70, h2 = 18;
+                if (wx >= n.x - w2 && wx <= n.x + w2 && wy >= n.y - h2 && wy <= n.y + h2) return n;
+            } else {
+                if (Utils.dist(wx, wy, n.x, n.y) <= fileCircleR) return n;
+            }
         }
         return null;
     },
@@ -588,9 +647,18 @@ export const Renderer = {
                 }
 
                 if (hit && e.button === 0) {
-                    hit.fx = hit.x;
-                    hit.fy = hit.y;
                     this._draggingNode = hit;
+                    const inSelection = hit.id === this._selectedId || this._selectedIds.has(hit.id);
+                    const idsToMove = inSelection && (this._selectedId || this._selectedIds.size > 0)
+                        ? [this._selectedId, ...this._selectedIds].filter(Boolean)
+                        : [hit.id];
+                    this._draggingNodes = idsToMove.map(id => this._nodeMap.get(id)).filter(Boolean);
+                    this._draggingStartPositions = new Map();
+                    for (const node of this._draggingNodes) {
+                        node.fx = node.x;
+                        node.fy = node.y;
+                        this._draggingStartPositions.set(node.id, { x: node.x, y: node.y });
+                    }
                     if (ForceLayout) ForceLayout.alpha = 0.3;
                 }
             }
@@ -612,17 +680,23 @@ export const Renderer = {
                 // Don't return — fall through to update hover
             }
 
-            if (this._draggingNode) {
+            if (this._draggingNode && this._draggingStartPositions) {
                 const dx = e.clientX - this._drag.startX;
                 const dy = e.clientY - this._drag.startY;
                 if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
                     this._drag.moved = true;
-                    this._draggingNode.fx = w.x;
-                    this._draggingNode.fy = w.y;
-                    // In strict mode, directly update position (sim may not be running)
-                    if (ForceLayout && ForceLayout.mode === 'strict') {
-                        this._draggingNode.x = w.x;
-                        this._draggingNode.y = w.y;
+                    const deltaWorldX = w.x - this._drag.worldStartX;
+                    const deltaWorldY = w.y - this._drag.worldStartY;
+                    for (const node of this._draggingNodes) {
+                        const start = this._draggingStartPositions.get(node.id);
+                        if (start) {
+                            node.fx = start.x + deltaWorldX;
+                            node.fy = start.y + deltaWorldY;
+                            if (ForceLayout && ForceLayout.mode === 'strict') {
+                                node.x = node.fx;
+                                node.y = node.fy;
+                            }
+                        }
                     }
                     if (ForceLayout) ForceLayout.alpha = 0.3;
                     this._dirty = true;
@@ -695,16 +769,17 @@ export const Renderer = {
                     }
                 }
 
-                // In strict mode: preserve position where the user dropped it
-                if (ForceLayout && ForceLayout.mode === 'strict') {
-                    this._draggingNode.x = this._draggingNode.fx || this._draggingNode.x;
-                    this._draggingNode.y = this._draggingNode.fy || this._draggingNode.y;
+                // Закрепляем позиции всех перетаскиваемых нод
+                for (const node of this._draggingNodes) {
+                    node.x = node.fx ?? node.x;
+                    node.y = node.fy ?? node.y;
+                    node.fx = null;
+                    node.fy = null;
                 }
 
-                this._draggingNode.fx = null;
-                this._draggingNode.fy = null;
-
                 this._draggingNode = null;
+                this._draggingNodes = [];
+                this._draggingStartPositions = null;
                 if (ForceLayout) ForceLayout.alpha = 0.1;
                 this._dirty = true;
             }
@@ -714,11 +789,13 @@ export const Renderer = {
                 const r = this._selectionRect;
                 const minX = Math.min(r.x1, r.x2), maxX = Math.max(r.x1, r.x2);
                 const minY = Math.min(r.y1, r.y2), maxY = Math.max(r.y1, r.y2);
-                const w2 = 70, h2 = 18;
+                const fileCircleR = this.FILE_CIRCLE_RADIUS;
                 if (!this._ctrlDown) this._selectedIds.clear();
                 for (const n of this.nodes) {
                     if (n.x == null) continue;
-                    if (n.x >= minX - w2 && n.x <= maxX + w2 && n.y >= minY - h2 && n.y <= maxY + h2) {
+                    const mx = this._isFolderShape(n) ? 70 : fileCircleR;
+                    const my = this._isFolderShape(n) ? 18 : fileCircleR;
+                    if (n.x >= minX - mx && n.x <= maxX + mx && n.y >= minY - my && n.y <= maxY + my) {
                         this._selectedIds.add(n.id);
                     }
                 }

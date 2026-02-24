@@ -8,6 +8,7 @@ import { NodeTypes } from '../core/nodeTypes.js';
 import { ForceLayout } from '../render/forceLayout.js';
 import { Renderer } from '../render/renderer.js';
 import { Search } from './search.js';
+import { ActivityLog } from './activityLog.js';
 import { LocalFileSystemProvider } from '../services/LocalFileSystemProvider.js';
 import { DropboxProvider } from '../services/DropboxProvider.js';
 import { DropboxAuth } from '../services/DropboxAuth.js';
@@ -60,6 +61,20 @@ const App = {
 
         // Load favorites
         this._loadFavorites();
+
+        // Activity log panel
+        Utils.el('btn-close-activity-log')?.addEventListener('click', () => this.toggleActivityLog());
+        const updateLogTime = () => {
+            const el = Utils.el('activity-log-time');
+            if (el && ActivityLog.isPanelVisible()) el.textContent = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+        };
+        setInterval(updateLogTime, 1000);
+    },
+
+    toggleActivityLog() {
+        ActivityLog.togglePanel();
+        const btn = Utils.el('btn-activity-log');
+        if (btn) btn.classList.toggle('active', ActivityLog.isPanelVisible());
     },
 
     async _handleDropboxCallback() {
@@ -128,6 +143,7 @@ const App = {
         Utils.el('btn-close-app')?.addEventListener('click', () => this.goHome());
         Utils.el('btn-heatmap')?.addEventListener('click', () => this.toggleHeatmap());
         Utils.el('btn-fit')?.addEventListener('click', () => Renderer.fitView());
+        Utils.el('btn-reset-layout')?.addEventListener('click', () => this.resetLayoutToStrict());
         Utils.el('btn-toggle-files')?.addEventListener('click', () => this.toggleFilesVisibility());
         Utils.el('btn-connect-dropbox')?.addEventListener('click', () => this.connectDropbox());
 
@@ -241,7 +257,22 @@ const App = {
     setLayoutMode(mode) {
         this._clusterMode = mode;
         ForceLayout.setMode(mode);
+        // В strict не сбрасываем позиции — только пересчёт глубины; сброс только по кнопке «Вернуть в норму»
         this._applyGraph(mode === 'strict' ? 0 : 0.8);
+    },
+
+    /** Вернуть раскладку к строгому дереву (по кнопке «Вернуть в норму»). */
+    resetLayoutToStrict() {
+        if (this._clusterMode !== 'strict') {
+            Utils.toast('Доступно только в режиме «Строгий»', 'info', 2000);
+            return;
+        }
+        ForceLayout.applyStrictLayout();
+        this._nodes = ForceLayout.nodes;
+        this._nodeMap = new Map(this._nodes.map(n => [n.id, n]));
+        Renderer.loadGraph(this._nodes, this._edges);
+        Renderer.markDirty();
+        Utils.toast('Раскладка сброшена в строгий вид', 'success', 1500);
     },
 
     async openDirectory() {
@@ -401,6 +432,12 @@ const App = {
 
         this._applyGraph(0.6);
         Utils.toast(`Перемещено: ${srcNode.name} в ${targetFolder.name}`, 'success');
+        ActivityLog.add({
+            type: 'move',
+            title: `Перемещение в «${targetFolder.name}»`,
+            status: 'success',
+            tags: [srcNode.name, targetFolder.name, (oldPath || '').replace(/^\//, '')],
+        });
 
         // BACKGROUND: API call
         try {
@@ -415,6 +452,7 @@ const App = {
             srcNode.parent = oldParentId;
             this._applyGraph(0);
             Utils.toast(`Ошибка перемещения: ${e.message}`, 'error', 3000);
+            ActivityLog.add({ type: 'move', title: `Ошибка перемещения: ${srcNode.name}`, status: 'error', tags: [e.message] });
         }
     },
 
@@ -422,9 +460,16 @@ const App = {
         try {
             await storage.copyNode(srcNode, targetFolder);
             Utils.toast(`Скопировано: ${srcNode.name} в ${targetFolder.name}`, 'success');
+            ActivityLog.add({
+                type: 'copy',
+                title: `Копирование в «${targetFolder.name}»`,
+                status: 'success',
+                tags: [srcNode.name, targetFolder.name],
+            });
             this._syncDropboxNow(); // Event-driven sync to refresh graph
         } catch (e) {
             Utils.toast(e.message, 'error', 3000);
+            ActivityLog.add({ type: 'copy', title: `Ошибка копирования: ${srcNode.name}`, status: 'error', tags: [e.message] });
         }
     },
 
@@ -504,6 +549,12 @@ const App = {
         Renderer.markDirty();
         this._syncRawData();
         Utils.toast(`Создано: ${name}`, 'success');
+        ActivityLog.add({
+            type: 'create',
+            title: isFolder ? `Создана папка «${name}»` : `Создан файл «${name}»`,
+            status: 'success',
+            tags: [name, srcNode.name || ''],
+        });
 
         // BACKGROUND: API call (fire-and-forget with error rollback)
         try {
@@ -535,6 +586,7 @@ const App = {
             Renderer.markDirty();
             this._renderSidebarTree(this._nodes);
             Utils.toast(`Ошибка: ${e.message}`, 'error', 3000);
+            ActivityLog.add({ type: 'create', title: `Ошибка создания: ${name}`, status: 'error', tags: [e.message] });
         }
     },
 
@@ -630,11 +682,15 @@ const App = {
         // 1) Run integrity check
         this._ensureGraphIntegrity();
 
-        // 2) Sync ForceLayout (reheat calls _calcTreeDepths internally)
+        // 2) Sync ForceLayout (reheat больше не сбрасывает позиции в strict; только пересчёт _depth)
         if (ForceLayout) {
             ForceLayout.nodes = this._nodes;
             ForceLayout.edges = this._edges;
             ForceLayout.reheat(this._clusterMode === 'strict' ? 0 : reheat);
+            // В строгом режиме позиционируем только новые ноды (без сброса уже расставленных)
+            if (this._clusterMode === 'strict') {
+                ForceLayout.applyStrictLayout({ onlyUnpositioned: true });
+            }
         }
 
         // 3) Sync Renderer
@@ -768,6 +824,14 @@ const App = {
         }
         if (success > 0) {
             Utils.toast(`✓ Загружено ${success} файл(ов) в ${folder.name}`, 'success', 3000);
+            const fileNames = files.slice(0, 5).map(f => f.name);
+            if (files.length > 5) fileNames.push(`…ещё ${files.length - 5}`);
+            ActivityLog.add({
+                type: 'upload',
+                title: `Загрузка в «${folder.name}»`,
+                status: 'success',
+                tags: [folder.name, `${success} файл(ов)`, ...fileNames],
+            });
             this._syncDropboxNow();
         }
     },
@@ -1444,6 +1508,12 @@ const App = {
 
         this._applyGraph(0.4);
         Utils.toast(`Удалено: ${node.name}`, 'success');
+        ActivityLog.add({
+            type: 'delete',
+            title: `Удаление «${node.name}»`,
+            status: 'success',
+            tags: [node.name, (pathToRemoveFromTags || node.path || '').replace(/^\//, '')],
+        });
 
         // BACKGROUND: API call
         try {
@@ -1461,6 +1531,7 @@ const App = {
                 this._edges = backupEdges;
                 this._applyGraph(0);
                 Utils.toast(`Ошибка удаления: ${e.message}`, 'error', 3000);
+                ActivityLog.add({ type: 'delete', title: `Ошибка удаления: ${node.name}`, status: 'error', tags: [e.message] });
             }
         }
     },
@@ -1531,8 +1602,15 @@ const App = {
                     Renderer.markDirty();
                     this._renderSidebarTree(this._nodes);
                     Utils.toast(`Переименовано в: ${newName}`, 'success');
+                    ActivityLog.add({
+                        type: 'rename',
+                        title: 'Переименование',
+                        status: 'success',
+                        tags: [node.name, newName],
+                    });
                 } catch (e) {
                     Utils.toast(`Ошибка: ${e.message}`, 'error', 3000);
+                    ActivityLog.add({ type: 'rename', title: `Ошибка переименования: ${node.name}`, status: 'error', tags: [e.message] });
                 } finally {
                     this._hideLoading();
                 }
