@@ -9,6 +9,9 @@ import { ForceLayout } from '../render/forceLayout.js';
 import { Renderer } from '../render/renderer.js';
 import { Search } from './search.js';
 import { ActivityLog } from './activityLog.js';
+import { Upload } from './upload.js';
+import { Timeline } from './timeline.js';
+import { Sidebar } from './sidebar.js';
 import { LocalFileSystemProvider } from '../services/LocalFileSystemProvider.js';
 import { DropboxProvider } from '../services/DropboxProvider.js';
 import { DropboxAuth } from '../services/DropboxAuth.js';
@@ -18,6 +21,8 @@ let storage = new LocalFileSystemProvider();
 let isDropboxMode = false;
 
 const App = {
+    getStorage() { return storage; },
+    isDropboxMode() { return isDropboxMode; },
     _nodes: [],
     _edges: [],
     _nodeMap: new Map(),
@@ -39,7 +44,9 @@ const App = {
             onNodeSelect: (id) => this.onNodeSelect(id),
             onContextMenu: (x, y, id) => this.showContextMenu(x, y, id),
             onConnectionDrop: (srcNode, cx, cy, wx, wy) => this.onConnectionDrop(srcNode, cx, cy, wx, wy),
-            onNodeMoveAttempt: (srcNode, tgtFolder) => this.handleNodeMove(srcNode, tgtFolder)
+            onNodeMoveAttempt: (srcNode, tgtFolder) => this.handleNodeMove(srcNode, tgtFolder),
+            getFavorites: () => this._favorites,
+            onShowMoveCopyMenu: (nodes, targetFolder, clientX, clientY) => this.showMoveCopyMenu(nodes, targetFolder, clientX, clientY),
         };
 
         Renderer.init('aether-canvas', 'minimap-canvas', appHooks);
@@ -62,19 +69,26 @@ const App = {
         // Load favorites
         this._loadFavorites();
 
-        // Activity log panel
+        // Activity log panel (таймер времени только когда панель открыта)
         Utils.el('btn-close-activity-log')?.addEventListener('click', () => this.toggleActivityLog());
-        const updateLogTime = () => {
-            const el = Utils.el('activity-log-time');
-            if (el && ActivityLog.isPanelVisible()) el.textContent = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-        };
-        setInterval(updateLogTime, 1000);
+        this._logTimeInterval = null;
     },
 
     toggleActivityLog() {
         ActivityLog.togglePanel();
+        const visible = ActivityLog.isPanelVisible();
         const btn = Utils.el('btn-activity-log');
-        if (btn) btn.classList.toggle('active', ActivityLog.isPanelVisible());
+        if (btn) btn.classList.toggle('active', visible);
+        if (visible && !this._logTimeInterval) {
+            this._logTimeInterval = setInterval(() => {
+                if (!ActivityLog.isPanelVisible()) return;
+                const el = Utils.el('activity-log-time');
+                if (el) el.textContent = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+            }, 1000);
+        } else if (!visible && this._logTimeInterval) {
+            clearInterval(this._logTimeInterval);
+            this._logTimeInterval = null;
+        }
     },
 
     async _handleDropboxCallback() {
@@ -111,7 +125,14 @@ const App = {
             if (!e.target.closest('.context-menu')) {
                 Utils.hide(Utils.el('context-menu'));
                 Utils.hide(Utils.el('create-menu'));
-            }
+        // Layout Buttons
+        document.querySelectorAll('.cluster-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const mode = e.currentTarget.dataset.mode;
+                document.querySelectorAll('.cluster-btn').forEach(b => b.classList.remove('active'));
+                e.currentTarget.classList.add('active');
+                this.setLayoutMode(mode);
+            });
         });
 
         // Layout Buttons
@@ -122,6 +143,19 @@ const App = {
                 e.currentTarget.classList.add('active');
                 this.setLayoutMode(mode);
             });
+        });
+
+        // Layout Buttons
+        document.querySelectorAll('.cluster-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const mode = e.currentTarget.dataset.mode;
+                document.querySelectorAll('.cluster-btn').forEach(b => b.classList.remove('active'));
+                e.currentTarget.classList.add('active');
+                this.setLayoutMode(mode);
+            });
+        });
+
+            }
         });
 
         // Canvas Handlers
@@ -208,8 +242,8 @@ const App = {
                 Renderer._selectedId = null;
                 Renderer._selectedIds.clear();
                 Renderer.markDirty();
-                if (this._uploadPickerMode) this.cancelUploadPicker();
-                if (this._timelineOpen) this.closeTimeline();
+                if (this._uploadPickerMode) Upload.cancelUploadPicker(this);
+                if (this._timelineOpen) Timeline.close(this);
             }
         });
 
@@ -235,7 +269,7 @@ const App = {
                 const files = e.dataTransfer.files;
                 if (!files || files.length === 0) return;
                 this._pendingUploadFiles = [...files];
-                this._enterUploadPickerMode();
+                Upload.enterUploadPickerMode(this);
             });
         }
 
@@ -429,6 +463,9 @@ const App = {
         this._edges.push(newEdge);
         srcNode.parentId = targetFolder.id;
         srcNode.parent = targetFolder.id;
+        // Clear position so strict layout places the node next to the new parent immediately
+        srcNode.x = undefined;
+        srcNode.y = undefined;
 
         this._applyGraph(0.6);
         Utils.toast(`Перемещено: ${srcNode.name} в ${targetFolder.name}`, 'success');
@@ -747,160 +784,17 @@ const App = {
         Utils.toast('Граф экспортирован как PNG', 'success');
     },
 
-    // ── Upload Picker Mode ──────────────────────────────────
     _pendingUploadFiles: null,
     _uploadPickerMode: false,
 
-    _enterUploadPickerMode() {
-        if (!this._pendingUploadFiles || this._pendingUploadFiles.length === 0) return;
-        this._uploadPickerMode = true;
+    _enterUploadPickerMode() { Upload.enterUploadPickerMode(this); },
+    cancelUploadPicker() { Upload.cancelUploadPicker(this); },
+    _exitUploadPickerMode() { Upload.exitUploadPickerMode(this); },
 
-        // Show upload picker banner
-        const banner = Utils.el('upload-picker-banner');
-        if (banner) {
-            const count = this._pendingUploadFiles.length;
-            const names = this._pendingUploadFiles.map(f => f.name).slice(0, 3).join(', ');
-            const extra = count > 3 ? ` и ещё ${count - 3}...` : '';
-            banner.querySelector('.upload-picker-text').textContent =
-                `📁 Выберите папку для загрузки: ${names}${extra}`;
-            Utils.show(banner);
-        }
-
-        // Enable dim mode on renderer to highlight folders
-        Renderer.setDimMode(true, 'folder');
-        Renderer._uploadPickerMode = true;
-        Renderer.markDirty();
-
-        // Override click handler: next click on folder = upload there
-        const handler = (e) => {
-            const w = Renderer.screenToWorld(e.offsetX, e.offsetY);
-            const hit = Renderer.hitTest(w.x, w.y);
-            if (hit && hit.type === 'folder') {
-                e.stopImmediatePropagation();
-                Renderer.canvas.removeEventListener('click', handler, true);
-                this._uploadToFolder(hit);
-            }
-        };
-        this._uploadClickHandler = handler;
-        Renderer.canvas.addEventListener('click', handler, true);
-    },
-
-    cancelUploadPicker() {
-        this._exitUploadPickerMode();
-        Utils.toast('Загрузка отменена', 'info', 1500);
-    },
-
-    _exitUploadPickerMode() {
-        this._uploadPickerMode = false;
-        this._pendingUploadFiles = null;
-        Renderer.setDimMode(false);
-        Renderer._uploadPickerMode = false;
-        Renderer.markDirty();
-        Utils.hide(Utils.el('upload-picker-banner'));
-        if (this._uploadClickHandler) {
-            Renderer.canvas.removeEventListener('click', this._uploadClickHandler, true);
-            this._uploadClickHandler = null;
-        }
-    },
-
-    async _uploadToFolder(folder) {
-        const files = [...(this._pendingUploadFiles || [])]; // Save before clearing
-        this._exitUploadPickerMode();
-        if (files.length === 0) return;
-
-        Utils.toast(`⬆ Загрузка ${files.length} файл(ов) в ${folder.name}...`, 'info', 3000);
-
-        let success = 0;
-        for (const file of files) {
-            try {
-                if (isDropboxMode && storage.uploadFile) {
-                    const targetPath = (folder._dbxPath || folder.path || '/' + folder.name) + '/' + file.name;
-                    await storage.uploadFile(targetPath, file);
-                    success++;
-                }
-            } catch (err) {
-                Utils.toast(`Ошибка: ${file.name}: ${err.message}`, 'error', 3000);
-            }
-        }
-        if (success > 0) {
-            Utils.toast(`✓ Загружено ${success} файл(ов) в ${folder.name}`, 'success', 3000);
-            const fileNames = files.slice(0, 5).map(f => f.name);
-            if (files.length > 5) fileNames.push(`…ещё ${files.length - 5}`);
-            ActivityLog.add({
-                type: 'upload',
-                title: `Загрузка в «${folder.name}»`,
-                status: 'success',
-                tags: [folder.name, `${success} файл(ов)`, ...fileNames],
-            });
-            this._syncDropboxNow();
-        }
-    },
-
-    // ── Timeline Slider ─────────────────────────────────────
     _timelineOpen: false,
 
-    openTimeline() {
-        if (this._timelineOpen) { this.closeTimeline(); return; }
-        this._timelineOpen = true;
-
-        // Find date range from all nodes
-        const dates = this._nodes
-            .filter(n => n.modifiedAt instanceof Date && !isNaN(n.modifiedAt))
-            .map(n => n.modifiedAt.getTime());
-        if (dates.length === 0) { Utils.toast('Нет данных о датах', 'info'); return; }
-
-        const minDate = new Date(Math.min(...dates));
-        const maxDate = new Date(Math.max(...dates));
-
-        const fromEl = Utils.el('timeline-from');
-        const toEl = Utils.el('timeline-to');
-        const rangeEl = Utils.el('timeline-range');
-
-        fromEl.value = minDate.toISOString().split('T')[0];
-        toEl.value = maxDate.toISOString().split('T')[0];
-        rangeEl.value = 100;
-
-        const applyFilter = () => {
-            const from = new Date(fromEl.value).getTime();
-            const rangeVal = parseInt(rangeEl.value);
-            const toInput = new Date(toEl.value).getTime();
-
-            // Range slider interpolates to-date between from and max
-            const effectiveTo = from + (toInput - from) * (rangeVal / 100);
-            let visible = 0;
-
-            for (const n of this._nodes) {
-                if (n.type === 'folder') { n._timelineHidden = false; continue; }
-                const t = n.modifiedAt instanceof Date ? n.modifiedAt.getTime() : 0;
-                n._timelineHidden = (t < from || t > effectiveTo);
-                if (!n._timelineHidden) visible++;
-            }
-
-            Utils.el('timeline-count').textContent = `${visible}`;
-            Renderer.markDirty();
-        };
-
-        fromEl.addEventListener('change', applyFilter);
-        toEl.addEventListener('change', applyFilter);
-        rangeEl.addEventListener('input', applyFilter);
-        this._timelineCleanup = () => {
-            fromEl.removeEventListener('change', applyFilter);
-            toEl.removeEventListener('change', applyFilter);
-            rangeEl.removeEventListener('input', applyFilter);
-        };
-
-        Utils.show(Utils.el('timeline-panel'));
-        applyFilter();
-    },
-
-    closeTimeline() {
-        this._timelineOpen = false;
-        if (this._timelineCleanup) { this._timelineCleanup(); this._timelineCleanup = null; }
-        Utils.hide(Utils.el('timeline-panel'));
-        // Unhide all nodes
-        for (const n of this._nodes) n._timelineHidden = false;
-        Renderer.markDirty();
-    },
+    openTimeline() { Timeline.open(this); },
+    closeTimeline() { Timeline.close(this); },
 
     _showLoading(text) {
         Utils.el('loading-text').textContent = text || 'ЗАГРУЗКА…';
@@ -911,74 +805,7 @@ const App = {
     _hideLoading() { Utils.hide(Utils.el('loading-overlay')); },
 
     _renderSidebarTree(nodes) {
-        const container = Utils.el('tree-container');
-        if (!container) return;
-
-        const childrenMap = new Map();
-        let rootNode = null;
-        for (const n of nodes) {
-            if (!n.parentId) rootNode = n;
-            else {
-                if (!childrenMap.has(n.parentId)) childrenMap.set(n.parentId, []);
-                childrenMap.get(n.parentId).push(n);
-            }
-        }
-
-        for (const list of childrenMap.values()) {
-            list.sort((a, b) => {
-                if (a.type === 'folder' && b.type !== 'folder') return -1;
-                if (b.type === 'folder' && a.type !== 'folder') return 1;
-                return a.name.localeCompare(b.name);
-            });
-        }
-
-        const buildHTML = (node) => {
-            const isFolder = node.type === 'folder';
-            const children = childrenMap.get(node.id) || [];
-
-            let html = `
-                <div class="tree-item" data-id="${node.id}">
-                    ${isFolder ? `<span class="tree-expander open">▼</span>` : '<span style="width:14px;display:inline-block"></span>'}
-                    <div style="background: ${NodeTypes.color(node.type)}; width: 8px; height: 8px; display: inline-block; margin-right: 8px; opacity: 0.8;"></div>
-                    <span class="tree-item-label">${node.name}</span>
-                </div>
-            `;
-            if (isFolder && children.length > 0) {
-                html += `<div class="tree-children">`;
-                for (const c of children) html += buildHTML(c);
-                html += `</div>`;
-            }
-            return html;
-        };
-
-        if (rootNode) container.innerHTML = buildHTML(rootNode);
-        else container.innerHTML = '<div style="opacity:0.5; text-align:center; padding: 20px 0;">Пусто</div>';
-
-        // Bind DOM events
-        container.querySelectorAll('.tree-item').forEach(el => {
-            el.addEventListener('click', (e) => {
-                e.stopPropagation();
-                document.querySelectorAll('.tree-item').forEach(x => x.classList.remove('selected'));
-                el.classList.add('selected');
-                this.onNodeSelect(el.dataset.id);
-                Renderer.panTo(el.dataset.id, 1.5);
-            });
-        });
-
-        container.querySelectorAll('.tree-expander').forEach(el => {
-            el.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const isOpen = el.classList.contains('open');
-                const childrenContainer = el.closest('.tree-item').nextElementSibling;
-                if (isOpen) {
-                    el.classList.remove('open'); el.textContent = '▶';
-                    if (childrenContainer && childrenContainer.classList.contains('tree-children')) childrenContainer.style.display = 'none';
-                } else {
-                    el.classList.add('open'); el.textContent = '▼';
-                    if (childrenContainer && childrenContainer.classList.contains('tree-children')) childrenContainer.style.display = 'block';
-                }
-            });
-        });
+        Sidebar.renderTree(this, nodes);
     },
 
     onNodeSelect(id) {
@@ -1034,7 +861,7 @@ const App = {
                 item.style.borderLeft = `3px solid ${NodeTypes.color(f.type)}`;
                 item.style.cursor = 'pointer';
                 item.innerHTML = `
-                    <div style="font-size: 13px; font-weight: bold; color: ${NodeTypes.color(f.type)}">${f.name}</div>
+                    <div style="font-size: 13px; font-weight: bold; color: ${NodeTypes.color(f.type)}">${Utils.escapeHtml(f.name)}</div>
                     <div style="font-size: 11px; color: #888">${Utils.formatSize(f.sizeBytes)}</div>
                 `;
                 item.addEventListener('mouseenter', () => item.style.background = '#333');
@@ -1043,22 +870,24 @@ const App = {
                 list.appendChild(item);
             }
             previewArea.appendChild(list);
-        } else if (node.handle || node._dbxPath) { // Also support Dropbox nodes that don't have handle
+        } else if (node.handle || node._dbxPath) {
+            // Local: node.handle; Dropbox: провайдер принимает node (по _dbxPath)
+            const handleArg = node.handle || node;
 
             if (node.type === 'image') {
-                const url = await storage.readFileURL(node.handle).catch(() => null);
+                const url = await storage.readFileURL(handleArg).catch(() => null);
                 if (url) { this._revokableURLs.push(url); const img = document.createElement('img'); img.src = url; previewArea.appendChild(img); }
                 else this._placeholderPreview(previewArea, node);
             } else if (node.type === 'code' || node.type === 'document') {
-                const text = await storage.readFileText(node.handle).catch(() => null);
+                const text = await storage.readFileText(handleArg).catch(() => null);
                 if (text !== null) { const pre = document.createElement('pre'); pre.className = 'preview-code'; pre.textContent = text.slice(0, 3000); previewArea.appendChild(pre); }
                 else this._placeholderPreview(previewArea, node);
             } else if (node.type === 'video') {
-                const url = await storage.readFileURL(node.handle).catch(() => null);
+                const url = await storage.readFileURL(handleArg).catch(() => null);
                 if (url) { this._revokableURLs.push(url); const v = document.createElement('video'); v.src = url; v.controls = true; v.style.maxHeight = '220px'; previewArea.appendChild(v); }
                 else this._placeholderPreview(previewArea, node);
             } else if (node.type === 'audio') {
-                const url = await storage.readFileURL(node.handle).catch(() => null);
+                const url = await storage.readFileURL(handleArg).catch(() => null);
                 if (url) { this._revokableURLs.push(url); const a = document.createElement('audio'); a.src = url; a.controls = true; a.style.width = '90%'; previewArea.appendChild(a); }
                 else this._placeholderPreview(previewArea, node);
             } else this._placeholderPreview(previewArea, node);
@@ -1278,14 +1107,6 @@ const App = {
         this._renderSidebarTree(this._nodes);
         Utils.toast('Все папки свернуты', 'info');
     },
-    showContextMenu(x, y, nodeId) {
-        this._ctxTargetId = nodeId;
-        const m = Utils.el('context-menu');
-        m.style.left = `${Math.min(x, window.innerWidth - 220)}px`;
-        m.style.top = `${Math.min(y, window.innerHeight - 200)}px`;
-        Utils.show(m);
-    },
-
     toggleHeatmap() {
         this._heatmapOn = !this._heatmapOn;
         Renderer.heatmapMode = this._heatmapOn;
@@ -1307,7 +1128,7 @@ const App = {
         Utils.el('legend-entries').innerHTML = folders.map(f => {
             const ratio = (f.subtreeSizeBytes || 0) / maxSize;
             const color = NodeTypes.heatColor(ratio);
-            return `<div class="legend-entry"><div class="legend-entry-dot" style="background:${color}"></div><div class="legend-entry-name">${f.name}</div><div class="legend-entry-size">${Utils.formatSize(f.subtreeSizeBytes)}</div></div>`;
+            return `<div class="legend-entry"><div class="legend-entry-dot" style="background:${color}"></div><div class="legend-entry-name">${Utils.escapeHtml(f.name)}</div><div class="legend-entry-size">${Utils.formatSize(f.subtreeSizeBytes)}</div></div>`;
         }).join('');
     },
 
@@ -1436,6 +1257,14 @@ const App = {
 
                 if (changed) {
                     storage = freshStorage;
+                    // Preserve tags by path so they don't disappear after move/sync (config may not have new path yet)
+                    const pathToTag = new Map();
+                    for (const n of this._nodes) {
+                        if (n._tag) {
+                            const p = n._dbxPath ?? n.path;
+                            if (p) pathToTag.set(p, n._tag);
+                        }
+                    }
                     for (const n of result.nodes) {
                         const existing = this._nodeMap?.get(n.id);
                         if (existing) {
@@ -1450,6 +1279,9 @@ const App = {
                         if (n.type === 'file-group') {
                             const existing = this._nodeMap?.get(n.id);
                             if (existing) { n.x = existing.x; n.y = existing.y; }
+                        } else {
+                            const p = n._dbxPath ?? n.path;
+                            if (p && pathToTag.has(p)) n._tag = pathToTag.get(p);
                         }
                     }
                     this._nodes = nodes;
@@ -1459,6 +1291,9 @@ const App = {
                     ForceLayout.edges = this._edges;
                     ForceLayout._calcTreeDepths(this._nodes, this._edges);
                     ForceLayout.reheat(this._clusterMode === 'strict' ? 0 : 0.3);
+                    if (this._clusterMode === 'strict') {
+                        ForceLayout.applyStrictLayout({ onlyUnpositioned: true });
+                    }
                     Renderer.loadGraph(this._nodes, this._edges);
                     Renderer.markDirty();
                     this._renderSidebarTree(this._nodes);

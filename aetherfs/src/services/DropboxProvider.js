@@ -10,6 +10,7 @@ import { DropboxAuth } from './DropboxAuth.js';
 const API_BASE = 'https://api.dropboxapi.com/2';
 const CONTENT_BASE = 'https://content.dropboxapi.com/2';
 const MAX_RETRIES = 3;
+const DEBUG_API = import.meta.env?.DEV === true;
 
 /** Config file in Dropbox root: stores node path → tag for persistence across reloads and devices */
 export const AETHERFS_TAGS_PATH = '/aetherfs-tags.json';
@@ -52,7 +53,7 @@ export class DropboxProvider {
                     fetchBody = JSON.stringify(body);
                 }
 
-                console.log(`[Dropbox API] POST ${endpoint}`, body);
+                if (DEBUG_API) console.log(`[Dropbox API] POST ${endpoint}`, body);
 
                 const res = await fetch(`${base}${endpoint}`, {
                     method: 'POST',

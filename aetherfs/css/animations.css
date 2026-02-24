@@ -289,9 +289,9 @@
 }
 
 .toolbar-btn:hover {
-    transform: translateY(-1px);
+    transform: scale(1.05);
 }
 
 .toolbar-btn:active {
-    transform: translateY(0) scale(0.97);
+    transform: scale(0.97);
 }

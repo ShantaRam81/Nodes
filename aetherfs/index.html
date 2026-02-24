@@ -98,112 +98,6 @@
     <!-- ── GRAPH SCREEN ── -->
     <div id="graph-screen" class="screen graph-screen hidden">
 
-      <!-- TOOLBAR -->
-      <header id="toolbar" class="toolbar">
-        <div class="toolbar-left">
-          <button id="btn-go-home" class="toolbar-logo-btn" title="На главную">
-            <span class="toolbar-logo-text">AETHER<span class="accent">FS</span></span>
-          </button>
-          <div class="toolbar-sep"></div>
-          <span id="toolbar-path" class="toolbar-path"></span>
-        </div>
-
-        <div class="toolbar-center">
-          <div class="toolbar-center">
-            <button class="cluster-btn" id="layout-free" data-mode="free">СВОБОДНЫЙ</button>
-            <button class="cluster-btn active" id="layout-strict" data-mode="strict">СТРОГИЙ</button>
-            <button class="cluster-btn" id="layout-radial" data-mode="radial">РАДИАЛЬНЫЙ</button>
-            <button class="toolbar-btn" id="btn-reset-layout" title="Вернуть раскладку в строгий вид (только в режиме Строгий)">
-              ВЕРНУТЬ В НОРМУ
-            </button>
-          </div>
-        </div>
-
-        <div class="toolbar-right">
-          <button class="toolbar-btn" id="btn-sync-dropbox" title="Принудительная синхронизация с Dropbox"
-            onclick="AetherApp._syncDropboxNow()" style="display: none;">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path
-                d="M21.5 2v6h-6M2.13 15.57a9 9 0 1 0 3.32-9.69L2 9M2.5 22v-6h6M21.87 8.43a9 9 0 1 0-3.32 9.69L22 15" />
-            </svg>
-            СИНХ
-          </button>
-          <button class="toolbar-btn" id="btn-heatmap" title="Тепловая карта (H)">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10" />
-              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-            </svg>
-            КАРТА
-          </button>
-          <button class="toolbar-btn" id="btn-timeline" title="Фильтр по дате" onclick="AetherApp.openTimeline()">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-              <line x1="16" y1="2" x2="16" y2="6" />
-              <line x1="8" y1="2" x2="8" y2="6" />
-              <line x1="3" y1="10" x2="21" y2="10" />
-            </svg>
-            ДАТА
-          </button>
-          <button class="toolbar-btn" id="btn-toggle-files" title="Показать/скрыть файлы">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
-              <polyline points="13 2 13 9 20 9" />
-            </svg>
-            ФАЙЛЫ
-          </button>
-          <button class="toolbar-btn" id="btn-search" title="Поиск (Ctrl+K)">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="11" cy="11" r="8" />
-              <path d="m21 21-4.35-4.35" />
-            </svg>
-            ПОИСК
-          </button>
-          <button class="toolbar-btn" id="btn-fit" title="Сфокусировать (F)">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
-            </svg>
-            ФИТ
-          </button>
-          <button class="toolbar-btn active" id="btn-toggle-grouping" title="Включить/выключить группировку файлов"
-            onclick="AetherApp.toggleGrouping()">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="3" width="7" height="7" />
-              <rect x="14" y="3" width="7" height="7" />
-              <rect x="3" y="14" width="7" height="7" />
-              <rect x="14" y="14" width="7" height="7" />
-            </svg>
-            ГРУППЫ
-          </button>
-          <button class="toolbar-btn" id="btn-export" title="Экспорт графа (Ctrl+E)" onclick="AetherApp.exportGraph()">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-            ЭКСПОРТ
-          </button>
-          <button class="toolbar-btn" id="btn-activity-log" title="Журнал действий" onclick="AetherApp.toggleActivityLog()">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/>
-              <line x1="16" y1="13" x2="8" y2="13"/>
-              <line x1="16" y1="17" x2="8" y2="17"/>
-              <polyline points="10 9 9 9 8 9"/>
-            </svg>
-            Журнал
-          </button>
-          <button class="toolbar-btn" id="btn-toggle-theme" title="Переключить тему" onclick="AetherApp.toggleTheme()"
-            style="font-size:18px; padding:4px 10px;">☀</button>
-          <div class="toolbar-sep"></div>
-          <button class="toolbar-btn danger" id="btn-close-app" title="Закрыть">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        </div>
-      </header>
-
       <!-- MAIN LAYOUT WRAPPER (SIDEBAR + CANVAS) -->
       <div class="graph-layout-wrapper">
         <!-- LEFT SIDEBAR -->
@@ -240,6 +134,91 @@
                 B</span></div>
           </div>
         </main>
+      </div>
+
+      <!-- TOOLBAR (bottom, compact pill) -->
+      <div class="toolbar-wrap">
+        <header id="toolbar" class="toolbar pill-toolbar">
+          <div class="toolbar-group">
+            <div class="toolbar-sep"></div>
+            <button id="btn-go-home" class="toolbar-logo-btn" title="На главную">
+              <span class="toolbar-logo-text">AETHER<span class="accent">FS</span></span>
+            </button>
+            <span id="toolbar-path" class="toolbar-path"></span>
+          </div>
+          <div class="toolbar-group">
+            <button class="toolbar-btn" id="btn-sync-dropbox" title="Синхронизация Dropbox"
+              onclick="AetherApp._syncDropboxNow()" style="display: none;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21.5 2v6h-6M2.13 15.57a9 9 0 1 0 3.32-9.69L2 9M2.5 22v-6h6M21.87 8.43a9 9 0 1 0-3.32 9.69L22 15" />
+              </svg>
+            </button>
+            <button class="toolbar-btn" id="btn-heatmap" title="Тепловая карта (H)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+              </svg>
+            </button>
+            <button class="toolbar-btn" id="btn-timeline" title="Фильтр по дате" onclick="AetherApp.openTimeline()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+              </svg>
+            </button>
+            <button class="toolbar-btn" id="btn-toggle-files" title="Показать/скрыть файлы">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+                <polyline points="13 2 13 9 20 9" />
+              </svg>
+            </button>
+            <button class="toolbar-btn" id="btn-search" title="Поиск (Ctrl+K)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8" />
+                <path d="m21 21-4.35-4.35" />
+              </svg>
+            </button>
+            <button class="toolbar-btn" id="btn-fit" title="Сфокусировать (F)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+              </svg>
+            </button>
+            <button class="toolbar-btn active" id="btn-toggle-grouping" title="Группировка файлов" onclick="AetherApp.toggleGrouping()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" />
+                <rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" />
+              </svg>
+            </button>
+            <button class="toolbar-btn" id="btn-export" title="Экспорт (Ctrl+E)" onclick="AetherApp.exportGraph()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+            </button>
+            <button class="toolbar-btn" id="btn-activity-log" title="Журнал" onclick="AetherApp.toggleActivityLog()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+                <polyline points="10 9 9 9 8 9"/>
+              </svg>
+            </button>
+            <button class="toolbar-btn" id="btn-toggle-theme" title="Тема" onclick="AetherApp.toggleTheme()">☀</button>
+          </div>
+          <div class="toolbar-group">
+            <button class="toolbar-btn" id="btn-reset-layout" title="Вернуть раскладку в норму">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                <path d="M3 3v5h5" />
+              </svg>
+            </button>
+            <button class="toolbar-btn danger" id="btn-close-app" title="Закрыть">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+        </header>
       </div>
 
       <!-- ACTIVITY LOG PANEL (Журнал действий) -->

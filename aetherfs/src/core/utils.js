@@ -71,6 +71,14 @@ export const Utils = {
         try { return structuredClone(obj); } catch (_) { return JSON.parse(JSON.stringify(obj)); }
     },
 
+    // ── HTML escape (защита от XSS при вставке в innerHTML) ─
+    escapeHtml(s) {
+        if (s == null) return '';
+        const div = document.createElement('div');
+        div.textContent = s;
+        return div.innerHTML;
+    },
+
     // ── DOM helpers ─────────────────────────────────────────
     el(id) { return document.getElementById(id); },
     show(el) { el.classList.remove('hidden'); },
@@ -95,9 +103,9 @@ export const Utils = {
     async copyText(text) {
         try {
             await navigator.clipboard.writeText(text);
-            Utils.toast('Copied to clipboard', 'success');
+            Utils.toast('Скопировано в буфер обмена', 'success');
         } catch (e) {
-            Utils.toast('Copy failed', 'error');
+            Utils.toast('Не удалось скопировать', 'error');
         }
     },
 

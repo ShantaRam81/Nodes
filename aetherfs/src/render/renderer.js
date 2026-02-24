@@ -41,7 +41,7 @@ export const Renderer = {
     _pathHighlightIds: new Set(), // IDs of nodes in the highlighted path
 
     /** Радиус круга файла (px). Меняй это значение, чтобы регулировать размер. */
-    FILE_CIRCLE_RADIUS: 10,
+    FILE_CIRCLE_RADIUS: 14,
 
     _raf: null,
     _dirty: true,
@@ -53,6 +53,10 @@ export const Renderer = {
         this.miniCanvas = Utils.el(miniCanvasId);
         this.miniCtx = this.miniCanvas.getContext('2d');
         this._bindEvents();
+        const container = this.canvas?.parentElement;
+        if (container && typeof ResizeObserver !== 'undefined') {
+            new ResizeObserver(() => this._resize()).observe(container);
+        }
         this._loop();
     },
 
@@ -63,8 +67,14 @@ export const Renderer = {
     _resize() {
         if (!this.canvas || !this.canvas.parentElement) return;
         const container = this.canvas.parentElement;
-        const w = container.clientWidth || window.innerWidth;
-        const h = container.clientHeight || (window.innerHeight - 52);
+        let w = container.clientWidth;
+        let h = container.clientHeight;
+        if (w <= 0 || h <= 0) {
+            const rect = container.getBoundingClientRect();
+            w = rect.width || window.innerWidth;
+            h = rect.height || window.innerHeight;
+        }
+        if (w <= 0 || h <= 0) return;
         this.canvas.width = w;
         this.canvas.height = h;
         this._dirty = true;
@@ -128,7 +138,7 @@ export const Renderer = {
         const edges = this.edges;
         const T = this._getThemeColors();
 
-        // Фон — сплошной цвет в экранных координатах
+        // Фон — сплошной цвет
         ctx.fillStyle = T.bg;
         ctx.fillRect(0, 0, W, H);
 
@@ -136,7 +146,7 @@ export const Renderer = {
         ctx.translate(W / 2 + cam.x, H / 2 + cam.y);
         ctx.scale(cam.scale, cam.scale);
 
-        // Точечная сетка в мировых координатах: при отдалении точки визуально уменьшаются
+        // Одна точечная сетка в мировых координатах (масштабируется с зумом)
         const dotSpacing = 25;
         const dotR = 1;
         const vw = (W / cam.scale) + dotSpacing * 2;
@@ -403,7 +413,8 @@ export const Renderer = {
                     ctx.fillText('+', rx + w - 22, n.y);
                 }
 
-                if (window.AetherApp && window.AetherApp._favorites.has(n.id)) {
+                const fav = this.appHooks?.getFavorites?.();
+                if (fav && fav.has(n.id)) {
                     this._drawFavoriteStar(ctx, rx + w - 11, n.y);
                 }
                 if (inUploadPicker && n.type === 'folder') {
@@ -438,7 +449,8 @@ export const Renderer = {
                 ctx.fillStyle = isSel ? T.textSel : T.text;
                 ctx.fillText(label, n.x + fileCircleR + 10, n.y);
 
-                if (window.AetherApp && window.AetherApp._favorites.has(n.id)) {
+                const fav = this.appHooks?.getFavorites?.();
+                if (fav && fav.has(n.id)) {
                     this._drawFavoriteStar(ctx, n.x + fileCircleR + 5, n.y);
                 }
 
@@ -762,9 +774,9 @@ export const Renderer = {
                     } else {
                         nodesToMove.push(this._draggingNode);
                     }
-                    if (window.AetherApp) {
-                        window.AetherApp.showMoveCopyMenu(nodesToMove.length === 1 ? nodesToMove[0] : nodesToMove, dropHit, e.clientX, e.clientY);
-                    } else if (this.appHooks && this.appHooks.onNodeMoveAttempt) {
+                    if (this.appHooks?.onShowMoveCopyMenu) {
+                        this.appHooks.onShowMoveCopyMenu(nodesToMove.length === 1 ? nodesToMove[0] : nodesToMove, dropHit, e.clientX, e.clientY);
+                    } else if (this.appHooks?.onNodeMoveAttempt) {
                         for (const n of nodesToMove) this.appHooks.onNodeMoveAttempt(n, dropHit);
                     }
                 }

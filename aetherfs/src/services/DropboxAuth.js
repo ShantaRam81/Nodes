@@ -3,9 +3,11 @@
  * Secure client-side auth without exposing App Secret
  */
 
-const DROPBOX_APP_KEY = 'wdia6zo086h1n2a';
+const DROPBOX_APP_KEY = import.meta.env?.VITE_DROPBOX_APP_KEY || 'wdia6zo086h1n2a';
 const AUTH_URL = 'https://www.dropbox.com/oauth2/authorize';
 const TOKEN_URL = 'https://api.dropboxapi.com/oauth2/token';
+
+const DEBUG_AUTH = import.meta.env?.DEV === true;
 
 const STORAGE_KEYS = {
     ACCESS_TOKEN: 'dbx_access_token',
@@ -112,9 +114,10 @@ export const DropboxAuth = {
             state: state,
         });
 
-        console.log('[DropboxAuth] Redirecting to Dropbox OAuth...');
-        console.log('[DropboxAuth] Redirect URI:', redirectUri);
-
+        if (DEBUG_AUTH) {
+            console.log('[DropboxAuth] Redirecting to Dropbox OAuth...');
+            console.log('[DropboxAuth] Redirect URI:', redirectUri);
+        }
         window.location.href = `${AUTH_URL}?${params.toString()}`;
     },
 
@@ -146,9 +149,10 @@ export const DropboxAuth = {
         }
 
         const redirectUri = _getRedirectUri();
-        console.log('[DropboxAuth] Exchanging code for token...');
-        console.log('[DropboxAuth] Redirect URI for token exchange:', redirectUri);
-
+        if (DEBUG_AUTH) {
+            console.log('[DropboxAuth] Exchanging code for token...');
+            console.log('[DropboxAuth] Redirect URI for token exchange:', redirectUri);
+        }
         try {
             const body = new URLSearchParams({
                 grant_type: 'authorization_code',
@@ -171,7 +175,7 @@ export const DropboxAuth = {
             }
 
             const data = await res.json();
-            console.log('[DropboxAuth] Token received successfully. Expires in:', data.expires_in, 'seconds');
+            if (DEBUG_AUTH) console.log('[DropboxAuth] Token received successfully. Expires in:', data.expires_in, 'seconds');
             this._storeTokens(data);
 
             // Clean up URL (remove ?code=... from address bar)
@@ -195,7 +199,7 @@ export const DropboxAuth = {
     },
 
     async _refreshAccessToken(refreshToken) {
-        console.log('[DropboxAuth] Refreshing access token...');
+        if (DEBUG_AUTH) console.log('[DropboxAuth] Refreshing access token...');
         const body = new URLSearchParams({
             grant_type: 'refresh_token',
             refresh_token: refreshToken,
@@ -215,7 +219,7 @@ export const DropboxAuth = {
         }
 
         const data = await res.json();
-        console.log('[DropboxAuth] Token refreshed successfully.');
+        if (DEBUG_AUTH) console.log('[DropboxAuth] Token refreshed successfully.');
         this._storeTokens(data);
         return data.access_token;
     },

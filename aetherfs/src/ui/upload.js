@@ -1,0 +1,94 @@
+/**
+ * AetherFS – Режим загрузки файлов (выбор папки, загрузка в Dropbox)
+ */
+
+import { Utils } from '../core/utils.js';
+import { Renderer } from '../render/renderer.js';
+import { ActivityLog } from './activityLog.js';
+
+export const Upload = {
+    enterUploadPickerMode(app) {
+        if (!app._pendingUploadFiles || app._pendingUploadFiles.length === 0) return;
+        app._uploadPickerMode = true;
+
+        const banner = Utils.el('upload-picker-banner');
+        if (banner) {
+            const count = app._pendingUploadFiles.length;
+            const names = app._pendingUploadFiles.map(f => f.name).slice(0, 3).join(', ');
+            const extra = count > 3 ? ` и ещё ${count - 3}...` : '';
+            banner.querySelector('.upload-picker-text').textContent =
+                `📁 Выберите папку для загрузки: ${names}${extra}`;
+            Utils.show(banner);
+        }
+
+        Renderer.setDimMode(true, 'folder');
+        Renderer._uploadPickerMode = true;
+        Renderer.markDirty();
+
+        const handler = (e) => {
+            const w = Renderer.screenToWorld(e.offsetX, e.offsetY);
+            const hit = Renderer.hitTest(w.x, w.y);
+            if (hit && hit.type === 'folder') {
+                e.stopImmediatePropagation();
+                Renderer.canvas.removeEventListener('click', handler, true);
+                Upload.uploadToFolder(app, hit);
+            }
+        };
+        app._uploadClickHandler = handler;
+        Renderer.canvas.addEventListener('click', handler, true);
+    },
+
+    exitUploadPickerMode(app) {
+        app._uploadPickerMode = false;
+        app._pendingUploadFiles = null;
+        Renderer.setDimMode(false);
+        Renderer._uploadPickerMode = false;
+        Renderer.markDirty();
+        Utils.hide(Utils.el('upload-picker-banner'));
+        if (app._uploadClickHandler) {
+            Renderer.canvas.removeEventListener('click', app._uploadClickHandler, true);
+            app._uploadClickHandler = null;
+        }
+    },
+
+    cancelUploadPicker(app) {
+        Upload.exitUploadPickerMode(app);
+        Utils.toast('Загрузка отменена', 'info', 1500);
+    },
+
+    async uploadToFolder(app, folder) {
+        const storage = app.getStorage?.();
+        const isDropboxMode = app.isDropboxMode?.() ?? false;
+
+        const files = [...(app._pendingUploadFiles || [])];
+        Upload.exitUploadPickerMode(app);
+        if (files.length === 0) return;
+
+        Utils.toast(`⬆ Загрузка ${files.length} файл(ов) в ${folder.name}...`, 'info', 3000);
+
+        let success = 0;
+        for (const file of files) {
+            try {
+                if (isDropboxMode && storage?.uploadFile) {
+                    const targetPath = (folder._dbxPath || folder.path || '/' + folder.name) + '/' + file.name;
+                    await storage.uploadFile(targetPath, file);
+                    success++;
+                }
+            } catch (err) {
+                Utils.toast(`Ошибка: ${file.name}: ${err.message}`, 'error', 3000);
+            }
+        }
+        if (success > 0) {
+            Utils.toast(`✓ Загружено ${success} файл(ов) в ${folder.name}`, 'success', 3000);
+            const fileNames = files.slice(0, 5).map(f => f.name);
+            if (files.length > 5) fileNames.push(`…ещё ${files.length - 5}`);
+            ActivityLog.add({
+                type: 'upload',
+                title: `Загрузка в «${folder.name}»`,
+                status: 'success',
+                tags: [folder.name, `${success} файл(ов)`, ...fileNames],
+            });
+            if (app._syncDropboxNow) app._syncDropboxNow();
+        }
+    },
+};
