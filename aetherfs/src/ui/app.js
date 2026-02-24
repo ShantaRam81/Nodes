@@ -386,6 +386,7 @@ const App = {
     },
 
     async handleNodeMove(srcNode, targetFolder) {
+        const oldPath = srcNode._dbxPath ?? srcNode.path;
         // OPTIMISTIC: Update graph topology immediately
         const oldParentId = srcNode.parentId;
         // Remove ALL incoming edges to srcNode (not just parentId match — bulletproof)
@@ -403,6 +404,7 @@ const App = {
         // BACKGROUND: API call
         try {
             await storage.moveNode(srcNode, targetFolder);
+            if (srcNode._tag) await this._persistTagsConfigPathMove(oldPath, srcNode._dbxPath ?? srcNode.path, srcNode._tag);
             this._syncDropboxNow();
         } catch (e) {
             // ROLLBACK
@@ -1181,6 +1183,21 @@ const App = {
         }).join('');
     },
 
+    /** Load tags from Dropbox config and apply to current nodes by path. Only in Dropbox mode. */
+    async _applyTagsFromConfig() {
+        if (!isDropboxMode || !storage.readTagsConfig) return;
+        try {
+            const data = await storage.readTagsConfig();
+            if (!data || !data.pathToTag) return;
+            for (const n of this._nodes) {
+                const path = n._dbxPath ?? n.path;
+                if (path && data.pathToTag[path] !== undefined) n._tag = data.pathToTag[path];
+            }
+        } catch (e) {
+            console.warn('[Tags] Failed to load config:', e.message);
+        }
+    },
+
     openSearch() {
         Utils.show(Utils.el('search-overlay'));
         const inp = Utils.el('search-input'); inp.value = ''; inp.focus();
@@ -1223,6 +1240,8 @@ const App = {
                 return;
             }
             this._loadGraph(result.nodes, result.edges, storage.rootName);
+            await this._applyTagsFromConfig();
+            Renderer.markDirty();
             Utils.show(Utils.el('btn-sync-dropbox'));
 
             // Start auto-refresh polling (every 30 seconds)
@@ -1257,6 +1276,8 @@ const App = {
             }
 
             this._loadGraph(result.nodes, result.edges, freshStorage.rootName);
+            await this._applyTagsFromConfig();
+            Renderer.markDirty();
             Utils.toast('☁ Dropbox: синхронизировано', 'success', 2000);
         } catch (e) {
             Utils.toast(`Ошибка Dropbox: ${e.message}`, 'error', 4000);
@@ -1315,6 +1336,8 @@ const App = {
                     this._renderSidebarTree(this._nodes);
                     this._updateStats(this._nodes);
                     Search.load(this._nodes);
+                    await this._applyTagsFromConfig();
+                    Renderer.markDirty();
                     Utils.toast('☁ Dropbox: синхронизировано', 'info', 1500);
                 }
             } catch (e) {
@@ -1340,6 +1363,7 @@ const App = {
         const confirmed = confirm(`Удалить «${node.name}»?\n\nЭто действие необратимо!`);
         if (!confirmed) return;
 
+        const pathToRemoveFromTags = node._dbxPath ?? node.path;
         // OPTIMISTIC: remove from graph immediately
         const descendants = new Set();
         const collectDescendants = (id) => {
@@ -1361,6 +1385,7 @@ const App = {
         try {
             if (isDropboxMode && storage.deleteNode) {
                 await storage.deleteNode(node);
+                if (pathToRemoveFromTags) await this._persistTagsConfig(pathToRemoveFromTags, null);
                 this._syncDropboxNow();
             }
         } catch (e) {
@@ -1433,9 +1458,11 @@ const App = {
             if (!newName || newName === node.name) return;
 
             if (isDropboxMode && storage.renameNode) {
+                const oldPath = node._dbxPath ?? node.path;
                 this._showLoading('ПЕРЕИМЕНОВАНИЕ…');
                 try {
                     await storage.renameNode(node, newName);
+                    if (node._tag) await this._persistTagsConfigPathMove(oldPath, node._dbxPath ?? node.path, node._tag);
                     this._nodeMap = new Map(this._nodes.map(n => [n.id, n]));
                     Renderer.markDirty();
                     this._renderSidebarTree(this._nodes);
@@ -1451,7 +1478,7 @@ const App = {
         });
     },
 
-    // ── Tags system ──────────────────────────────────────────
+    // ── Tags system (persisted in Dropbox /aetherfs-tags.json) ──
     _tagColors: {
         urgent: '#ff4444',
         review: '#ffaa00',
@@ -1460,7 +1487,35 @@ const App = {
         important: '#cc44ff',
     },
 
-    ctx_setTag(tag) {
+    /** Persist one path→tag change to Dropbox config. tag=null removes path. */
+    async _persistTagsConfig(path, tag) {
+        if (!isDropboxMode || !storage.readTagsConfig || !storage.writeTagsConfig) return;
+        try {
+            const data = await storage.readTagsConfig() || { pathToTag: {} };
+            if (!data.pathToTag) data.pathToTag = {};
+            if (tag) data.pathToTag[path] = tag; else delete data.pathToTag[path];
+            await storage.writeTagsConfig(data);
+        } catch (e) {
+            console.warn('[Tags] Failed to persist:', e.message);
+            Utils.toast('Не удалось сохранить теги в Dropbox', 'error', 2000);
+        }
+    },
+
+    /** Update config when a node is moved/renamed: oldPath → newPath, keep tag. */
+    async _persistTagsConfigPathMove(oldPath, newPath, tag) {
+        if (!tag || !isDropboxMode || !storage.readTagsConfig || !storage.writeTagsConfig) return;
+        try {
+            const data = await storage.readTagsConfig() || { pathToTag: {} };
+            if (!data.pathToTag) data.pathToTag = {};
+            delete data.pathToTag[oldPath];
+            data.pathToTag[newPath] = tag;
+            await storage.writeTagsConfig(data);
+        } catch (e) {
+            console.warn('[Tags] Failed to update path:', e.message);
+        }
+    },
+
+    async ctx_setTag(tag) {
         Utils.hide(Utils.el('context-menu'));
         const node = this._nodeMap.get(this._ctxTargetId);
         if (!node) return;
@@ -1470,6 +1525,8 @@ const App = {
             node._tag = tag;
         }
         Renderer.markDirty();
+        const path = node._dbxPath ?? node.path;
+        if (path && isDropboxMode) await this._persistTagsConfig(path, node._tag);
         Utils.toast(node._tag ? `Тег: #${tag}` : 'Тег снят', 'info', 1500);
     },
 

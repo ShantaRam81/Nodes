@@ -11,6 +11,9 @@ const API_BASE = 'https://api.dropboxapi.com/2';
 const CONTENT_BASE = 'https://content.dropboxapi.com/2';
 const MAX_RETRIES = 3;
 
+/** Config file in Dropbox root: stores node path → tag for persistence across reloads and devices */
+export const AETHERFS_TAGS_PATH = '/aetherfs-tags.json';
+
 export class DropboxProvider {
     constructor() {
         this.nodes = [];
@@ -291,6 +294,33 @@ export class DropboxProvider {
             const result = await this._apiCall('/files/get_temporary_link', { path: node._dbxPath });
             return result.link;
         } catch (_) { return null; }
+    }
+
+    // ── Tags config (file in Dropbox root) ──────────────────
+    /** Load tags config from /aetherfs-tags.json. Returns { pathToTag: { path: tag } } or null if missing. */
+    async readTagsConfig() {
+        try {
+            const { response } = await this._apiCall('/files/download', { path: AETHERFS_TAGS_PATH }, { isContent: true });
+            const text = await response.text();
+            const data = JSON.parse(text);
+            if (data && typeof data.pathToTag === 'object') return data;
+            return { pathToTag: {} };
+        } catch (e) {
+            if (e.message && (e.message.includes('not_found') || e.message.includes('404') || e.message.includes('409'))) return null;
+            console.warn('[Dropbox] readTagsConfig error:', e.message);
+            return null;
+        }
+    }
+
+    /** Save tags config to /aetherfs-tags.json. payload = { pathToTag: { path: tag } }. */
+    async writeTagsConfig(payload) {
+        const body = new TextEncoder().encode(JSON.stringify(payload, null, 2));
+        await this._apiCall('/files/upload', {
+            path: AETHERFS_TAGS_PATH,
+            mode: 'overwrite',
+            autorename: false,
+            mute: true,
+        }, { isContent: true, isUpload: true, rawBody: body });
     }
 
     // ── Create ─────────────────────────────────────────────
