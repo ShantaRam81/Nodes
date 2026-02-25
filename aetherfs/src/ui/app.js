@@ -5,6 +5,7 @@
 
 import { Utils } from '../core/utils.js';
 import { NodeTypes } from '../core/nodeTypes.js';
+import { graphStore } from '../core/graphStore.js';
 import { ForceLayout } from '../render/forceLayout.js';
 import { Renderer } from '../render/renderer.js';
 import { Search } from './search.js';
@@ -315,11 +316,18 @@ const App = {
             return;
         }
         this._showLoading('ОТКРЫТИЕ ПАПКИ…');
+        this._showProgress('Сканирование файловой системы…');
+        this._scanCount = 0;
         let result;
         try {
             result = await storage.openDirectory((count, name) => {
+                this._scanCount = count;
                 Utils.el('loading-text').textContent = 'СКАНИРОВАНИЕ СИСТЕМЫ…';
                 Utils.el('loading-sub').textContent = `${count} элементов · ${name}`;
+                // Аппроксимация прогресса до 80% от количества обнаруженных элементов
+                const approxTotal = this._scanCount + 100;
+                const progress = Math.min(0.8, 0.8 * (count / approxTotal));
+                this._setLoadingProgress(progress);
             });
             if (!result) {
                 this._hideLoading();
@@ -387,34 +395,45 @@ const App = {
         this._rawNodes = rawNodes;
         this._rawEdges = rawEdges; // Always keep original edges for ungrouping
 
+        // Make GraphStore the single source of truth from the start
+        this._nodes = nodes;
         this._edges = edges;
-        this._nodeMap = new Map(nodes.map(n => [n.id, n]));
-        Search.load(nodes); // Note: we search only visible nodes for simplicity now
+        graphStore.loadGraph(this._nodes, this._edges);
+        this._nodeMap = graphStore.nodeMap;
+
+        Search.load(this._nodes); // Note: we search only visible nodes for simplicity now
 
         Utils.hide(Utils.el('landing-screen'));
         Utils.show(Utils.el('graph-screen'));
         Renderer.resize();
 
         Utils.el('toolbar-path').textContent = rootName || '';
-        this._updateStats(nodes);
-        this._renderSidebarTree(nodes);
+        this._updateStats(this._nodes);
+        this._renderSidebarTree(this._nodes);
 
-        ForceLayout.init(nodes, edges, this._clusterMode, (laidNodes, done) => {
+        ForceLayout.init(this._nodes, this._edges, this._clusterMode, (laidNodes, done) => {
             this._nodes = laidNodes;
-            this._nodeMap = new Map(laidNodes.map(n => [n.id, n]));
-            Renderer.loadGraph(laidNodes, edges);
+            graphStore.refreshGraph(this._nodes, this._edges);
+            this._nodeMap = graphStore.nodeMap;
+            Renderer.loadGraph(this._nodes, this._edges);
             Renderer.markDirty();
-            if (done) this._hideLoading();
+            if (done) {
+                this._setLoadingProgress(1);
+                setTimeout(() => this._hideLoading(), 120);
+                setTimeout(() => this._hideProgress(), 180);
+            }
         });
 
         this._nodes = ForceLayout.nodes;
-        Renderer.loadGraph(ForceLayout.nodes, edges);
+        graphStore.refreshGraph(this._nodes, this._edges);
+        this._nodeMap = graphStore.nodeMap;
+        Renderer.loadGraph(this._nodes, this._edges);
         Renderer.markDirty();
         ForceLayout.start();
 
         // Auto-zoom disabled: user controls zoom manually via F key or FIT button
         Utils.el('loading-text').textContent = 'РАСЧЕТ ГРАФА…';
-        Utils.el('loading-sub').textContent = `${nodes.length} узлов — симуляция…`;
+        Utils.el('loading-sub').textContent = `${this._nodes.length} узлов — симуляция…`;
     },
 
     showMoveCopyMenu(srcNode, targetFolder, x, y) {
@@ -641,73 +660,15 @@ const App = {
     // ══════════════════════════════════════════════════════════
 
     /**
-     * Validates and repairs the graph. Removes orphan edges,
-     * reconnects dangling nodes, deduplicates edges.
-     * Returns { fixed: number } — how many issues were repaired.
+     * Delegate graph integrity checks to the centralized GraphStore.
+     * Keeps local aliases (_nodes, _edges, _nodeMap) in sync with the store.
      */
     _ensureGraphIntegrity() {
-        let fixed = 0;
-        const nodeIds = new Set(this._nodes.map(n => n.id));
-
-        // 1) Remove edges referencing non-existent nodes
-        const beforeEdges = this._edges.length;
-        this._edges = this._edges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
-        fixed += beforeEdges - this._edges.length;
-
-        // 2) Deduplicate edges (same source→target)
-        const edgeKeys = new Set();
-        const uniqueEdges = [];
-        for (const e of this._edges) {
-            const key = `${e.source}→${e.target}`;
-            if (!edgeKeys.has(key)) {
-                edgeKeys.add(key);
-                uniqueEdges.push(e);
-            } else {
-                fixed++;
-            }
-        }
-        this._edges = uniqueEdges;
-
-        // 3) Find root node (node with no incoming edge)
-        const targeted = new Set(this._edges.map(e => e.target));
-        const roots = this._nodes.filter(n => !targeted.has(n.id));
-        const rootId = roots.length > 0 ? roots[0].id : (this._nodes[0]?.id || null);
-
-        // 4) Detect dangling nodes (no edge connecting them, except root)
-        const connected = new Set();
-        connected.add(rootId);
-        for (const e of this._edges) {
-            connected.add(e.source);
-            connected.add(e.target);
-        }
-        for (const n of this._nodes) {
-            if (!connected.has(n.id) && n.id !== rootId) {
-                // Reconnect to parent or root
-                const parentId = n.parentId || rootId;
-                if (nodeIds.has(parentId)) {
-                    this._edges.push({
-                        id: `${parentId}->${n.id}`,
-                        source: parentId,
-                        target: n.id
-                    });
-                } else {
-                    this._edges.push({
-                        id: `${rootId}->${n.id}`,
-                        source: rootId,
-                        target: n.id
-                    });
-                }
-                fixed++;
-            }
-        }
-
-        // 5) Rebuild nodeMap
-        this._nodeMap = new Map(this._nodes.map(n => [n.id, n]));
-
-        if (fixed > 0) {
-            console.warn(`[GraphIntegrity] Fixed ${fixed} issue(s)`);
-        }
-        return { fixed };
+        const result = graphStore.refreshGraph(this._nodes, this._edges);
+        this._nodes = graphStore.nodes;
+        this._edges = graphStore.edges;
+        this._nodeMap = graphStore.nodeMap;
+        return result;
     },
 
     /**
@@ -716,7 +677,7 @@ const App = {
      * @param {number} reheat — ForceLayout reheat value (0 = no physics, 0.5 = medium)
      */
     _applyGraph(reheat = 0.3) {
-        // 1) Run integrity check
+        // 1) Run integrity check via GraphStore
         this._ensureGraphIntegrity();
 
         // 2) Sync ForceLayout (reheat больше не сбрасывает позиции в strict; только пересчёт _depth)
@@ -803,6 +764,39 @@ const App = {
     },
 
     _hideLoading() { Utils.hide(Utils.el('loading-overlay')); },
+
+    _setLoadingProgress(value) {
+        const strip = Utils.el('progress-strip');
+        if (!strip) return;
+        const v = Math.max(0, Math.min(1, value ?? 0));
+        const fill = Utils.el('progress-track-fill');
+        const knob = Utils.el('progress-track-knob');
+        const label = Utils.el('progress-label-percent');
+        const pct = Math.round(v * 100);
+        if (fill) fill.style.width = `${v * 100}%`;
+        if (knob) knob.style.left = `${v * 100}%`;
+        if (label) label.textContent = `${pct}%`;
+        strip.classList.remove('hidden');
+    },
+
+    _showProgress(label) {
+        const strip = Utils.el('progress-strip');
+        if (!strip) return;
+        const textEl = Utils.el('progress-label-text');
+        const pctEl = Utils.el('progress-label-percent');
+        const fill = Utils.el('progress-track-fill');
+        const knob = Utils.el('progress-track-knob');
+        if (textEl) textEl.textContent = label || 'Загрузка…';
+        if (pctEl) pctEl.textContent = '0%';
+        if (fill) fill.style.width = '0%';
+        if (knob) knob.style.left = '0%';
+        strip.classList.remove('hidden');
+    },
+
+    _hideProgress() {
+        const strip = Utils.el('progress-strip');
+        if (strip) strip.classList.add('hidden');
+    },
 
     _renderSidebarTree(nodes) {
         Sidebar.renderTree(this, nodes);
@@ -1021,7 +1015,7 @@ const App = {
                 Utils.toast('В папке нет файлов для скачивания', 'info');
                 return;
             }
-            this._showLoading(`Скачивание… ${fileNodes.length} файл(ов)`);
+            this._showProgress(`Скачивание… ${fileNodes.length} файл(ов)`);
             try {
                 const zip = new JSZip();
                 const basePath = ((node._dbxPath ?? node.path) || '').replace(/\/+$/, '') || node.name;
@@ -1032,7 +1026,10 @@ const App = {
                     const zipPath = rel ? `${node.name}/${rel}` : `${node.name}/${fn.name}`;
                     const blob = await storage.getFileBlob(fn);
                     if (blob) zip.file(zipPath, blob);
-                    if (fileNodes.length > 3) Utils.el('loading-sub').textContent = `${i + 1} / ${fileNodes.length}`;
+                    if (fileNodes.length > 3) {
+                        Utils.el('loading-sub').textContent = `${i + 1} / ${fileNodes.length}`;
+                        this._setLoadingProgress((i + 1) / fileNodes.length);
+                    }
                 }
                 const zipBlob = await zip.generateAsync({ type: 'blob' });
                 this._triggerDownload(zipBlob, `${node.name}.zip`);
@@ -1041,10 +1038,10 @@ const App = {
                 console.error(e);
                 Utils.toast(`Ошибка: ${e.message}`, 'error', 3000);
             } finally {
-                this._hideLoading();
+                this._hideProgress();
             }
         } else {
-            this._showLoading('Скачивание…');
+            this._showProgress('Скачивание…');
             try {
                 const blob = await storage.getFileBlob(node);
                 if (!blob) throw new Error('Не удалось прочитать файл');
@@ -1053,7 +1050,7 @@ const App = {
             } catch (e) {
                 Utils.toast(`Ошибка: ${e.message}`, 'error', 3000);
             } finally {
-                this._hideLoading();
+                this._hideProgress();
             }
         }
     },
@@ -1177,12 +1174,18 @@ const App = {
 
     async _openDropbox() {
         this._showLoading('СКАНИРОВАНИЕ DROPBOX…');
+        this._showProgress('Сканирование Dropbox…');
+        this._scanCount = 0;
         storage = new DropboxProvider();
         isDropboxMode = true;
         try {
             const result = await storage.openDirectory((count, name) => {
                 Utils.el('loading-text').textContent = 'СКАНИРОВАНИЕ DROPBOX…';
                 Utils.el('loading-sub').textContent = `${count} элементов · ${name}`;
+                this._scanCount = count;
+                const approxTotal = this._scanCount + 200;
+                const progress = Math.min(0.8, 0.8 * (count / approxTotal));
+                this._setLoadingProgress(progress);
             });
             if (!result) {
                 this._hideLoading();
