@@ -1,5 +1,5 @@
 /**
- * AetherFS – Режим загрузки файлов (выбор папки, загрузка в Dropbox)
+ * AetherFS – Режим загрузки файлов (выбор папки, загрузка в Remote Storage)
  */
 
 import { Utils } from '../core/utils.js';
@@ -58,18 +58,18 @@ export const Upload = {
 
     async uploadToFolder(app, folder) {
         const storage = app.getStorage?.();
-        const isDropboxMode = app.isDropboxMode?.() ?? false;
+        const isRemoteMode = app.isRemoteMode?.() ?? false;
 
         const files = [...(app._pendingUploadFiles || [])];
         Upload.exitUploadPickerMode(app);
         if (files.length === 0) return;
 
-        Utils.toast(`⬆ Загрузка ${files.length} файл(ов) в ${folder.name}...`, 'info', 3000);
-
+        app._showProgress(`Загрузка 0 / ${files.length}`);
         let success = 0;
-        for (const file of files) {
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
             try {
-                if (isDropboxMode && storage?.uploadFile) {
+                if (isRemoteMode && storage?.uploadFile) {
                     const targetPath = (folder._dbxPath || folder.path || '/' + folder.name) + '/' + file.name;
                     await storage.uploadFile(targetPath, file);
                     success++;
@@ -77,7 +77,14 @@ export const Upload = {
             } catch (err) {
                 Utils.toast(`Ошибка: ${file.name}: ${err.message}`, 'error', 3000);
             }
+
+            app._setLoadingProgress((i + 1) / files.length);
+            const textEl = Utils.el('progress-label-text');
+            if (textEl) textEl.textContent = `Загрузка ${i + 1} / ${files.length}`;
         }
+
+        app._hideProgress();
+
         if (success > 0) {
             Utils.toast(`✓ Загружено ${success} файл(ов) в ${folder.name}`, 'success', 3000);
             const fileNames = files.slice(0, 5).map(f => f.name);
@@ -88,7 +95,7 @@ export const Upload = {
                 status: 'success',
                 tags: [folder.name, `${success} файл(ов)`, ...fileNames],
             });
-            if (app._syncDropboxNow) app._syncDropboxNow();
+            if (app._syncStorageNow) app._syncStorageNow();
         }
     },
 };

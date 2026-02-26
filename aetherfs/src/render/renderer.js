@@ -428,6 +428,14 @@ export const Renderer = {
                     const tagColors = { urgent: '#ff4444', review: '#ffaa00', wip: '#44aaff', done: '#44cc44', important: '#cc44ff' };
                     ctx.fillStyle = tagColors[n._tag] || '#888';
                     ctx.fillRect(rx + 2, ry + h - 4, w - 4, 3);
+                } else if (n._tags && n._tags.length > 0) {
+                    const tagColors = { urgent: '#ff4444', review: '#ffaa00', wip: '#44aaff', done: '#44cc44', important: '#cc44ff' };
+                    // Draw a segmented bar for multiple tags in a group
+                    const segmentWidth = (w - 4) / n._tags.length;
+                    for (let i = 0; i < n._tags.length; i++) {
+                        ctx.fillStyle = tagColors[n._tags[i]] || '#888';
+                        ctx.fillRect(rx + 2 + (i * segmentWidth), ry + h - 4, segmentWidth, 3);
+                    }
                 }
             } else {
                 // ─── File: один круг (внутренний), без внешнего кольца ───
@@ -539,8 +547,16 @@ export const Renderer = {
     zoom(factor, cx, cy) {
         if (cx == null) cx = this.canvas.width / 2;
         if (cy == null) cy = this.canvas.height / 2;
+
+        const w = this.screenToWorld(cx, cy);
+
         const newScale = Utils.clamp(this._targetCam.scale * factor, 0.04, 6);
         this._targetCam.scale = newScale;
+
+        // Keep the exact world point `w` under the cursor `cx, cy`
+        this._targetCam.x = cx - this.canvas.width / 2 - w.x * newScale;
+        this._targetCam.y = cy - this.canvas.height / 2 - w.y * newScale;
+
         this._dirty = true;
     },
 

@@ -89,6 +89,14 @@
             </svg>
             ПОДКЛЮЧИТЬ DROPBOX
           </button>
+          <button id="btn-connect-yandex" class="btn-yandex"
+            style="background:#ff0000; color:white; border:none; margin-left:10px;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+              <path
+                d="M10.29 2.5a1.44 1.44 0 0 0-1.8.44C7.03 5 4.7 9.17 4.7 9.17a1.43 1.43 0 0 0 .53 1.95 1.44 1.44 0 0 0 1.96-.53s1.77-3.1 3.14-5.06v11.95c0 2.22-1.8 3.52-3.8 3.52-1.72 0-3.08-1-3.6-2.58a1.44 1.44 0 0 0-1.8-.84 1.43 1.43 0 0 0-.84 1.8A5.94 5.94 0 0 0 6.53 24c3.41 0 6.67-2.3 6.67-6.52V2.5z" />
+            </svg>
+            ПОДКЛЮЧИТЬ ЯНДЕКС ДИСК
+          </button>
         </div>
 
         <p class="landing-note">⚡ Поддерживается File System Access API и ☁ Dropbox API — работает в Chrome и Edge.</p>
@@ -148,9 +156,17 @@
           </div>
           <div class="toolbar-group">
             <button class="toolbar-btn" id="btn-sync-dropbox" title="Синхронизация Dropbox"
-              onclick="AetherApp._syncDropboxNow()" style="display: none;">
+              onclick="AetherApp.forceSyncStorage()" style="display: none;">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21.5 2v6h-6M2.13 15.57a9 9 0 1 0 3.32-9.69L2 9M2.5 22v-6h6M21.87 8.43a9 9 0 1 0-3.32 9.69L22 15" />
+                <path
+                  d="M21.5 2v6h-6M2.13 15.57a9 9 0 1 0 3.32-9.69L2 9M2.5 22v-6h6M21.87 8.43a9 9 0 1 0-3.32 9.69L22 15" />
+              </svg>
+            </button>
+            <button class="toolbar-btn" id="btn-sync-yandex" title="Синхронизация Яндекс Диск"
+              onclick="AetherApp.forceSyncStorage()" style="display: none;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path
+                  d="M21.5 2v6h-6M2.13 15.57a9 9 0 1 0 3.32-9.69L2 9M2.5 22v-6h6M21.87 8.43a9 9 0 1 0-3.32 9.69L22 15" />
               </svg>
             </button>
             <button class="toolbar-btn" id="btn-heatmap" title="Тепловая карта (H)">
@@ -162,7 +178,8 @@
             <button class="toolbar-btn" id="btn-timeline" title="Фильтр по дате" onclick="AetherApp.openTimeline()">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" />
+                <line x1="16" y1="2" x2="16" y2="6" />
+                <line x1="8" y1="2" x2="8" y2="6" />
                 <line x1="3" y1="10" x2="21" y2="10" />
               </svg>
             </button>
@@ -180,27 +197,33 @@
             </button>
             <button class="toolbar-btn" id="btn-fit" title="Сфокусировать (F)">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                <path
+                  d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
               </svg>
             </button>
-            <button class="toolbar-btn active" id="btn-toggle-grouping" title="Группировка файлов" onclick="AetherApp.toggleGrouping()">
+            <button class="toolbar-btn active" id="btn-toggle-grouping" title="Группировка файлов"
+              onclick="AetherApp.toggleGrouping()">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" />
-                <rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" />
+                <rect x="3" y="3" width="7" height="7" />
+                <rect x="14" y="3" width="7" height="7" />
+                <rect x="3" y="14" width="7" height="7" />
+                <rect x="14" y="14" width="7" height="7" />
               </svg>
             </button>
             <button class="toolbar-btn" id="btn-export" title="Экспорт (Ctrl+E)" onclick="AetherApp.exportGraph()">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
             </button>
             <button class="toolbar-btn" id="btn-activity-log" title="Журнал" onclick="AetherApp.toggleActivityLog()">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/>
-                <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
-                <polyline points="10 9 9 9 8 9"/>
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+                <polyline points="10 9 9 9 8 9" />
               </svg>
             </button>
             <button class="toolbar-btn" id="btn-toggle-theme" title="Тема" onclick="AetherApp.toggleTheme()">☀</button>
@@ -214,7 +237,8 @@
             </button>
             <button class="toolbar-btn danger" id="btn-close-app" title="Закрыть">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
             </button>
           </div>

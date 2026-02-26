@@ -16,14 +16,18 @@ import { Sidebar } from './sidebar.js';
 import { LocalFileSystemProvider } from '../services/LocalFileSystemProvider.js';
 import { DropboxProvider } from '../services/DropboxProvider.js';
 import { DropboxAuth } from '../services/DropboxAuth.js';
+import { YandexProvider } from '../services/YandexProvider.js';
+import { YandexAuth } from '../services/YandexAuth.js';
 import JSZip from 'jszip';
 
 let storage = new LocalFileSystemProvider();
-let isDropboxMode = false;
+let isRemoteMode = false;
 
 const App = {
     getStorage() { return storage; },
-    isDropboxMode() { return isDropboxMode; },
+    isDropboxMode() { return isRemoteMode && storage.id === 'dropbox'; },
+    isYandexMode() { return isRemoteMode && storage.id === 'yandex'; },
+    isRemoteMode() { return isRemoteMode; },
     _nodes: [],
     _edges: [],
     _nodeMap: new Map(),
@@ -61,8 +65,8 @@ const App = {
         const themeBtn = Utils.el('btn-toggle-theme');
         if (themeBtn) themeBtn.textContent = this._theme === 'dark' ? '☀' : '🌙';
 
-        // Handle Dropbox OAuth callback if returning from authorization
-        this._handleDropboxCallback();
+        // Handle OAuth callbacks if returning from authorization
+        this._handleOAuthCallback();
 
         // Load saved comments from localStorage
         this._loadComments();
@@ -92,17 +96,32 @@ const App = {
         }
     },
 
-    async _handleDropboxCallback() {
+    async _handleOAuthCallback() {
         const params = new URLSearchParams(window.location.search);
+
+        // Dropbox callback
         if (params.has('code')) {
             this._showLoading('АВТОРИЗАЦИЯ DROPBOX…');
             const success = await DropboxAuth.handleCallback();
             if (success) {
                 Utils.toast('Dropbox подключен!', 'success', 2000);
-                await this._openDropbox();
+                await this._openStorage(new DropboxProvider());
             } else {
                 this._hideLoading();
                 Utils.toast('Ошибка авторизации Dropbox', 'error', 3000);
+            }
+        }
+
+        // Yandex callback (hash parameter access_token)
+        if (window.location.hash.includes('access_token')) {
+            this._showLoading('АВТОРИЗАЦИЯ YANDEX…');
+            const success = YandexAuth.handleCallback();
+            if (success) {
+                Utils.toast('Яндекс Диск подключен!', 'success', 2000);
+                await this._openStorage(new YandexProvider());
+            } else {
+                this._hideLoading();
+                Utils.toast('Ошибка авторизации Яндекс', 'error', 3000);
             }
         }
     },
@@ -126,35 +145,35 @@ const App = {
             if (!e.target.closest('.context-menu')) {
                 Utils.hide(Utils.el('context-menu'));
                 Utils.hide(Utils.el('create-menu'));
-        // Layout Buttons
-        document.querySelectorAll('.cluster-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const mode = e.currentTarget.dataset.mode;
-                document.querySelectorAll('.cluster-btn').forEach(b => b.classList.remove('active'));
-                e.currentTarget.classList.add('active');
-                this.setLayoutMode(mode);
-            });
-        });
+                // Layout Buttons
+                document.querySelectorAll('.cluster-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const mode = e.currentTarget.dataset.mode;
+                        document.querySelectorAll('.cluster-btn').forEach(b => b.classList.remove('active'));
+                        e.currentTarget.classList.add('active');
+                        this.setLayoutMode(mode);
+                    });
+                });
 
-        // Layout Buttons
-        document.querySelectorAll('.cluster-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const mode = e.currentTarget.dataset.mode;
-                document.querySelectorAll('.cluster-btn').forEach(b => b.classList.remove('active'));
-                e.currentTarget.classList.add('active');
-                this.setLayoutMode(mode);
-            });
-        });
+                // Layout Buttons
+                document.querySelectorAll('.cluster-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const mode = e.currentTarget.dataset.mode;
+                        document.querySelectorAll('.cluster-btn').forEach(b => b.classList.remove('active'));
+                        e.currentTarget.classList.add('active');
+                        this.setLayoutMode(mode);
+                    });
+                });
 
-        // Layout Buttons
-        document.querySelectorAll('.cluster-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const mode = e.currentTarget.dataset.mode;
-                document.querySelectorAll('.cluster-btn').forEach(b => b.classList.remove('active'));
-                e.currentTarget.classList.add('active');
-                this.setLayoutMode(mode);
-            });
-        });
+                // Layout Buttons
+                document.querySelectorAll('.cluster-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const mode = e.currentTarget.dataset.mode;
+                        document.querySelectorAll('.cluster-btn').forEach(b => b.classList.remove('active'));
+                        e.currentTarget.classList.add('active');
+                        this.setLayoutMode(mode);
+                    });
+                });
 
             }
         });
@@ -180,7 +199,8 @@ const App = {
         Utils.el('btn-fit')?.addEventListener('click', () => Renderer.fitView());
         Utils.el('btn-reset-layout')?.addEventListener('click', () => this.resetLayoutToStrict());
         Utils.el('btn-toggle-files')?.addEventListener('click', () => this.toggleFilesVisibility());
-        Utils.el('btn-connect-dropbox')?.addEventListener('click', () => this.connectDropbox());
+        Utils.el('btn-connect-dropbox')?.addEventListener('click', () => this.connectProvider('dropbox'));
+        Utils.el('btn-connect-yandex')?.addEventListener('click', () => this.connectProvider('yandex'));
 
         // Zoom
         Utils.el('btn-zoom-in')?.addEventListener('click', () => Renderer.zoom(1.3));
@@ -208,7 +228,7 @@ const App = {
                     this._nodes = this._nodes.filter(n => !descendants.has(n.id));
                     this._edges = this._edges.filter(e2 => !descendants.has(e2.source) && !descendants.has(e2.target));
                     this._nodeMap = new Map(this._nodes.map(n => [n.id, n]));
-                    if (isDropboxMode && storage.deleteNode) storage.deleteNode(node).catch(() => { });
+                    if (isRemoteMode && storage.deleteNode) storage.deleteNode(node).catch(() => { });
                 }
                 Renderer._selectedIds.clear();
                 Renderer._selectedId = null;
@@ -366,6 +386,12 @@ const App = {
                 const totalSize = files.reduce((sum, f) => sum + (f.sizeBytes || 0), 0);
                 const groupId = parentId + '_filegroup';
 
+                const groupTags = new Set();
+                for (const f of files) {
+                    nodesToHide.add(f.id);
+                    if (f._tag) groupTags.add(f._tag);
+                }
+
                 newNodes.push({
                     id: groupId,
                     name: `[ 📄 ${files.length} файлов ]`,
@@ -373,6 +399,7 @@ const App = {
                     sizeBytes: totalSize,
                     parentId: parentId,
                     _hiddenFiles: files,
+                    _tags: Array.from(groupTags),
                     x: 0, y: 0
                 });
                 newEdges.push({
@@ -380,8 +407,6 @@ const App = {
                     source: parentId,
                     target: groupId
                 });
-
-                for (const f of files) nodesToHide.add(f.id);
             }
         }
 
@@ -401,7 +426,7 @@ const App = {
         graphStore.loadGraph(this._nodes, this._edges);
         this._nodeMap = graphStore.nodeMap;
 
-        Search.load(this._nodes); // Note: we search only visible nodes for simplicity now
+        Search.load(this._rawNodes); // search over all nodes, not just visible ones
 
         Utils.hide(Utils.el('landing-screen'));
         Utils.show(Utils.el('graph-screen'));
@@ -499,7 +524,7 @@ const App = {
         try {
             await storage.moveNode(srcNode, targetFolder);
             if (srcNode._tag) await this._persistTagsConfigPathMove(oldPath, srcNode._dbxPath ?? srcNode.path, srcNode._tag);
-            this._syncDropboxNow();
+            if (this._syncStorageNow) this._syncStorageNow();
         } catch (e) {
             // ROLLBACK
             this._edges = this._edges.filter(e => e.id !== newEdge.id);
@@ -522,7 +547,7 @@ const App = {
                 status: 'success',
                 tags: [srcNode.name, targetFolder.name],
             });
-            this._syncDropboxNow(); // Event-driven sync to refresh graph
+            if (this._syncStorageNow) this._syncStorageNow(); // Event-driven sync to refresh graph
         } catch (e) {
             Utils.toast(e.message, 'error', 3000);
             ActivityLog.add({ type: 'copy', title: `Ошибка копирования: ${srcNode.name}`, status: 'error', tags: [e.message] });
@@ -587,7 +612,7 @@ const App = {
         Renderer._nodeMap.set(id, newNode);
 
         this._renderSidebarTree(this._nodes);
-        Search.load(this._nodes);
+        Search.load(this._rawNodes);
 
         if (ForceLayout) {
             ForceLayout.nodes.push(newNode);
@@ -614,7 +639,7 @@ const App = {
 
         // BACKGROUND: API call (fire-and-forget with error rollback)
         try {
-            if (isDropboxMode) {
+            if (isRemoteMode) {
                 const apiResult = isFolder
                     ? await storage.createFolder(newPath)
                     : await storage.createFile(newPath);
@@ -622,7 +647,7 @@ const App = {
                     newNode._dbxPath = apiResult.path_display;
                     newNode.path = apiResult.path_display;
                 }
-                this._syncDropboxNow();
+                if (this._syncStorageNow) this._syncStorageNow();
             } else if (srcNode.handle) {
                 await (isFolder
                     ? storage.createFolder(srcNode.id, name)
@@ -1129,15 +1154,21 @@ const App = {
         }).join('');
     },
 
-    /** Load tags from Dropbox config and apply to current nodes by path. Only in Dropbox mode. */
+    /** Load tags from Provider config and apply to current nodes by path. Only in Remote mode. */
     async _applyTagsFromConfig() {
-        if (!isDropboxMode || !storage.readTagsConfig) return;
+        if (!isRemoteMode || !storage.readTagsConfig) return;
         try {
             const data = await storage.readTagsConfig();
             if (!data || !data.pathToTag) return;
             for (const n of this._nodes) {
                 const path = n._dbxPath ?? n.path;
                 if (path && data.pathToTag[path] !== undefined) n._tag = data.pathToTag[path];
+            }
+            if (this._rawNodes) {
+                for (const n of this._rawNodes) {
+                    const path = n._dbxPath ?? n.path;
+                    if (path && data.pathToTag[path] !== undefined) n._tag = data.pathToTag[path];
+                }
             }
         } catch (e) {
             console.warn('[Tags] Failed to load config:', e.message);
@@ -1150,38 +1181,70 @@ const App = {
         Utils.el('search-results').innerHTML = '<div class="search-empty">Начните вводить текст...</div>';
     },
     closeSearch(e) { if (!e || e.target === Utils.el('search-overlay')) Utils.hide(Utils.el('search-overlay')); },
+    onSearchInput(value) { this._onSearchInput(value); },
     _onSearchInput(value) {
         const results = Search.query(value);
         Search.renderResults(Utils.el('search-results'), results, value, (id) => {
             Utils.hide(Utils.el('search-overlay'));
-            Renderer.selectNode(id);
-            Renderer.highlightNode(id);
-            Renderer.panTo(id, 1.8);
+
+            // If the node is hidden inside a group, find its parent group to select instead
+            let targetId = id;
+            if (!this._nodeMap.has(targetId) && this._rawNodes) {
+                const rawNode = this._rawNodes.find(n => n.id === targetId);
+                if (rawNode) targetId = rawNode.parentId + '_filegroup';
+            }
+
+            this.onNodeSelect(targetId);
+            Renderer._highlightId = targetId;
+            Renderer.panTo(targetId, 1.8);
             Renderer.setDimMode(true, null);
             setTimeout(() => Renderer.setDimMode(false), 3000);
         });
     },
 
-    // ── Dropbox Integration ────────────────────────────────
-    async connectDropbox() {
-        if (DropboxAuth.isLoggedIn()) {
-            this._showLoading('ЗАГРУЗКА DROPBOX…');
-            await this._openDropbox();
-        } else {
-            DropboxAuth.login(); // Redirects to Dropbox
+    // ── Remote Storage Integration ─────────────────────────
+    async connectProvider(providerName) {
+        if (providerName === 'dropbox') {
+            if (DropboxAuth.isLoggedIn()) {
+                this._showLoading('ЗАГРУЗКА DROPBOX…');
+                await this._openStorage(new DropboxProvider());
+            } else {
+                DropboxAuth.login(); // Redirects to Dropbox
+            }
+        } else if (providerName === 'yandex') {
+            if (YandexAuth.isLoggedIn()) {
+                this._showLoading('ЗАГРУЗКА ЯНДЕКС ДИСК…');
+                await this._openStorage(new YandexProvider());
+            } else {
+                Renderer.showInlineInput(window.innerWidth / 2, window.innerHeight / 2, 'Вставьте токен Яндекса сюда (или оставьте пустым для авторизации)', async (token) => {
+                    if (token) {
+                        const success = YandexAuth.manuallySetToken(token);
+                        if (success) {
+                            Utils.toast('Яндекс Диск подключен!', 'success', 2000);
+                            this._showLoading('ЗАГРУЗКА ЯНДЕКС ДИСК…');
+                            await this._openStorage(new YandexProvider());
+                        } else {
+                            Utils.toast('Неверный формат токена', 'error', 3000);
+                        }
+                    } else {
+                        YandexAuth.login(); // Redirects to Yandex for manual copy
+                    }
+                });
+            }
         }
     },
 
-    async _openDropbox() {
-        this._showLoading('СКАНИРОВАНИЕ DROPBOX…');
-        this._showProgress('Сканирование Dropbox…');
+    async _openStorage(provider) {
+        const name = provider.id === 'yandex' ? 'ЯНДЕКС ДИСК' : 'DROPBOX';
+        this._showLoading(`СКАНИРОВАНИЕ ${name}…`);
+        this._showProgress(`Сканирование ${name}…`);
         this._scanCount = 0;
-        storage = new DropboxProvider();
-        isDropboxMode = true;
+        storage = provider;
+        isRemoteMode = true;
         try {
-            const result = await storage.openDirectory((count, name) => {
-                Utils.el('loading-text').textContent = 'СКАНИРОВАНИЕ DROPBOX…';
-                Utils.el('loading-sub').textContent = `${count} элементов · ${name}`;
+            const result = await storage.openDirectory((count, fileName) => {
+                Utils.el('loading-text').textContent = `СКАНИРОВАНИЕ ${name}…`;
+                Utils.el('loading-sub').textContent = `${count} элементов · ${fileName}`;
                 this._scanCount = count;
                 const approxTotal = this._scanCount + 200;
                 const progress = Math.min(0.8, 0.8 * (count / approxTotal));
@@ -1194,27 +1257,31 @@ const App = {
             this._loadGraph(result.nodes, result.edges, storage.rootName);
             await this._applyTagsFromConfig();
             Renderer.markDirty();
-            Utils.show(Utils.el('btn-sync-dropbox'));
+
+            Utils.hide(Utils.el('btn-sync-dropbox'));
+            Utils.hide(Utils.el('btn-sync-yandex'));
+            Utils.show(Utils.el(provider.id === 'yandex' ? 'btn-sync-yandex' : 'btn-sync-dropbox'));
 
             // Start auto-refresh polling (every 30 seconds)
-            this._startDropboxSync();
+            this._startStorageSync();
         } catch (e) {
             this._hideLoading();
-            Utils.toast(`Ошибка Dropbox: ${e.message}`, 'error', 4000);
+            Utils.toast(`Ошибка ${name}: ${e.message}`, 'error', 4000);
         }
     },
 
-    _startDropboxSync() {
-        // No polling — sync is now event-driven via _syncDropboxNow()
-        if (this._dropboxSyncInterval) clearInterval(this._dropboxSyncInterval);
-        this._dropboxSyncInterval = null;
+    _startStorageSync() {
+        // No polling — sync is now event-driven via _syncStorageNow()
+        if (this._storageSyncInterval) clearInterval(this._storageSyncInterval);
+        this._storageSyncInterval = null;
     },
 
-    async forceSyncDropbox() {
-        if (!isDropboxMode) return;
-        this._showLoading('СИНХРОНИЗАЦИЯ DROPBOX…');
+    async forceSyncStorage() {
+        if (!isRemoteMode) return;
+        const name = storage.id === 'yandex' ? 'ЯНДЕКС ДИСК' : 'DROPBOX';
+        this._showLoading(`СИНХРОНИЗАЦИЯ ${name}…`);
         try {
-            const freshStorage = new DropboxProvider();
+            const freshStorage = storage.id === 'yandex' ? new YandexProvider() : new DropboxProvider();
             const result = await freshStorage.openDirectory(() => { });
             if (!result) return;
 
@@ -1230,20 +1297,21 @@ const App = {
             this._loadGraph(result.nodes, result.edges, freshStorage.rootName);
             await this._applyTagsFromConfig();
             Renderer.markDirty();
-            Utils.toast('☁ Dropbox: синхронизировано', 'success', 2000);
+            Utils.toast(`☁ ${name}: синхронизировано`, 'success', 2000);
         } catch (e) {
-            Utils.toast(`Ошибка Dropbox: ${e.message}`, 'error', 4000);
+            Utils.toast(`Ошибка ${name}: ${e.message}`, 'error', 4000);
             this._hideLoading();
         }
     },
 
     // Event-driven sync: called after any CRUD operation with 2s debounce
-    _syncDropboxNow() {
-        if (!isDropboxMode) return;
+    _syncStorageNow() {
+        if (!isRemoteMode) return;
         if (this._syncDebounce) clearTimeout(this._syncDebounce);
         this._syncDebounce = setTimeout(async () => {
+            const name = storage.id === 'yandex' ? 'ЯНДЕКС ДИСК' : 'DROPBOX';
             try {
-                const freshStorage = new DropboxProvider();
+                const freshStorage = storage.id === 'yandex' ? new YandexProvider() : new DropboxProvider();
                 const result = await freshStorage.openDirectory(() => { });
                 if (!result) return;
 
@@ -1301,22 +1369,24 @@ const App = {
                     Renderer.markDirty();
                     this._renderSidebarTree(this._nodes);
                     this._updateStats(this._nodes);
-                    Search.load(this._nodes);
+                    Search.load(this._rawNodes);
                     await this._applyTagsFromConfig();
                     Renderer.markDirty();
-                    Utils.toast('☁ Dropbox: синхронизировано', 'info', 1500);
+                    Utils.toast(`☁ ${name}: синхронизировано`, 'info', 1500);
                 }
             } catch (e) {
-                console.warn('[Dropbox Sync] Error:', e.message);
+                console.warn(`[${name} Sync] Error:`, e.message);
             }
         }, 2000);
     },
 
-    disconnectDropbox() {
-        DropboxAuth.logout();
+    disconnectStorage() {
+        if (storage.id === 'yandex') YandexAuth.logout();
+        else DropboxAuth.logout();
         storage = new LocalFileSystemProvider();
-        isDropboxMode = false;
+        isRemoteMode = false;
         Utils.hide(Utils.el('btn-sync-dropbox'));
+        Utils.hide(Utils.el('btn-sync-yandex'));
         this.goHome();
     },
 
@@ -1355,10 +1425,10 @@ const App = {
 
         // BACKGROUND: API call
         try {
-            if (isDropboxMode && storage.deleteNode) {
+            if (isRemoteMode && storage.deleteNode) {
                 await storage.deleteNode(node);
                 if (pathToRemoveFromTags) await this._persistTagsConfig(pathToRemoveFromTags, null);
-                this._syncDropboxNow();
+                if (this._syncStorageNow) this._syncStorageNow();
             }
         } catch (e) {
             if (e.message && e.message.includes('not_found')) {
@@ -1379,8 +1449,8 @@ const App = {
         const node = this._nodeMap.get(this._ctxTargetId);
         if (!node) return;
 
-        if (!isDropboxMode || !storage.copyNode) {
-            Utils.toast('Дублирование доступно только для Dropbox', 'info', 3000);
+        if (!isRemoteMode || !storage.copyNode) {
+            Utils.toast('Дублирование доступно только для удаленного хранилища', 'info', 3000);
             return;
         }
 
@@ -1430,7 +1500,7 @@ const App = {
         Renderer.showInlineInput(node.x, node.y, node.name, async (newName) => {
             if (!newName || newName === node.name) return;
 
-            if (isDropboxMode && storage.renameNode) {
+            if (isRemoteMode && storage.renameNode) {
                 const oldPath = node._dbxPath ?? node.path;
                 this._showLoading('ПЕРЕИМЕНОВАНИЕ…');
                 try {
@@ -1453,12 +1523,12 @@ const App = {
                     this._hideLoading();
                 }
             } else {
-                Utils.toast('Переименование доступно только для Dropbox', 'info', 3000);
+                Utils.toast('Переименование доступно только для удаленного хранилища', 'info', 3000);
             }
         });
     },
 
-    // ── Tags system (persisted in Dropbox /aetherfs-tags.json) ──
+    // ── Tags system (persisted in Remote Storage /aetherfs-tags.json) ──
     _tagColors: {
         urgent: '#ff4444',
         review: '#ffaa00',
@@ -1467,9 +1537,9 @@ const App = {
         important: '#cc44ff',
     },
 
-    /** Persist one path→tag change to Dropbox config. tag=null removes path. */
+    /** Persist one path→tag change to config. tag=null removes path. */
     async _persistTagsConfig(path, tag) {
-        if (!isDropboxMode || !storage.readTagsConfig || !storage.writeTagsConfig) return;
+        if (!isRemoteMode || !storage.readTagsConfig || !storage.writeTagsConfig) return;
         try {
             const data = await storage.readTagsConfig() || { pathToTag: {} };
             if (!data.pathToTag) data.pathToTag = {};
@@ -1477,13 +1547,13 @@ const App = {
             await storage.writeTagsConfig(data);
         } catch (e) {
             console.warn('[Tags] Failed to persist:', e.message);
-            Utils.toast('Не удалось сохранить теги в Dropbox', 'error', 2000);
+            Utils.toast('Не удалось сохранить теги', 'error', 2000);
         }
     },
 
     /** Update config when a node is moved/renamed: oldPath → newPath, keep tag. */
     async _persistTagsConfigPathMove(oldPath, newPath, tag) {
-        if (!tag || !isDropboxMode || !storage.readTagsConfig || !storage.writeTagsConfig) return;
+        if (!tag || !isRemoteMode || !storage.readTagsConfig || !storage.writeTagsConfig) return;
         try {
             const data = await storage.readTagsConfig() || { pathToTag: {} };
             if (!data.pathToTag) data.pathToTag = {};
@@ -1504,9 +1574,13 @@ const App = {
         } else {
             node._tag = tag;
         }
+        if (this._rawNodes) {
+            const rawNode = this._rawNodes.find(n => n.id === node.id);
+            if (rawNode) rawNode._tag = node._tag;
+        }
         Renderer.markDirty();
         const path = node._dbxPath ?? node.path;
-        if (path && isDropboxMode) await this._persistTagsConfig(path, node._tag);
+        if (path && isRemoteMode) await this._persistTagsConfig(path, node._tag);
         Utils.toast(node._tag ? `Тег: #${tag}` : 'Тег снят', 'info', 1500);
     },
 
